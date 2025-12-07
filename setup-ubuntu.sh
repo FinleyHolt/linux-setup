@@ -591,38 +591,6 @@ elif [ -f "$DOTFILES_DIR/wallpaper.png" ]; then
 fi
 
 if [ -n "$WALLPAPER_PATH" ] && [ -f "$WALLPAPER_PATH" ]; then
-    # Detect screen resolution
-    if command -v xrandr &> /dev/null && command -v convert &> /dev/null; then
-        RESOLUTION=$(xrandr | grep -oP '\bconnected primary \K[0-9]+x[0-9]+' | head -1)
-        if [ -z "$RESOLUTION" ]; then
-            # Fallback if no primary display
-            RESOLUTION=$(xrandr | grep -oP '\bconnected \K[0-9]+x[0-9]+' | head -1)
-        fi
-
-        if [ -n "$RESOLUTION" ]; then
-            print_step "Detected screen resolution: $RESOLUTION"
-            RESIZED_WALLPAPER="$HOME/.cache/wallpaper-resized.jpeg"
-
-            # Create cache directory if it doesn't exist
-            mkdir -p "$HOME/.cache"
-
-            # Check if we need to regenerate the resized wallpaper
-            # Regenerate if: cached version doesn't exist OR source is newer than cache
-            if [ ! -f "$RESIZED_WALLPAPER" ] || [ "$WALLPAPER_PATH" -nt "$RESIZED_WALLPAPER" ]; then
-                # Resize wallpaper to match screen resolution
-                print_step "Optimizing wallpaper for your screen resolution..."
-                convert "$WALLPAPER_PATH" -resize "$RESOLUTION^" -gravity center -extent "$RESOLUTION" "$RESIZED_WALLPAPER" 2>/dev/null && {
-                    WALLPAPER_PATH="$RESIZED_WALLPAPER"
-                } || {
-                    print_warning "Failed to resize wallpaper, using original"
-                }
-            else
-                print_step "Using cached optimized wallpaper"
-                WALLPAPER_PATH="$RESIZED_WALLPAPER"
-            fi
-        fi
-    fi
-
     gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_PATH"
     gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER_PATH"
     gsettings set org.gnome.desktop.background picture-options "zoom"
