@@ -227,6 +227,35 @@ code --install-extension redhat.vscode-yaml --force
 print_step "Removing GitHub Copilot (if installed)..."
 code --uninstall-extension GitHub.copilot 2>/dev/null || true
 
+################################################################################
+# 6.5. Claude Code CLI Installation
+################################################################################
+
+print_step "Installing Claude Code CLI..."
+if ! command -v claude &> /dev/null; then
+    curl -fsSL https://claude.ai/install.sh | bash
+    print_step "Claude Code CLI installed successfully"
+else
+    print_step "Claude Code CLI is already installed"
+fi
+
+print_step "Installing claude-history..."
+if ! command -v claude-history &> /dev/null; then
+    # Ensure cargo is available
+    if command -v cargo &> /dev/null; then
+        cargo install claude-history
+        print_step "claude-history installed successfully"
+    else
+        print_warning "Cargo not found. Skipping claude-history installation."
+    fi
+else
+    print_step "claude-history is already installed"
+fi
+
+################################################################################
+# 6.6. VS Code Configuration
+################################################################################
+
 print_step "Configuring VS Code settings..."
 mkdir -p "$HOME/.config/Code/User"
 
