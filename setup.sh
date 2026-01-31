@@ -130,10 +130,10 @@ case $SETUP_MODE in
                 setup_neovim
             fi
 
-            read -p "Install Docker? (y/n) [default: y] " -n 1 -r
+            read -p "Install Podman? (y/n) [default: y] " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                setup_docker
+                setup_podman
             fi
 
             read -p "Install CLI utilities? (y/n) [default: y] " -n 1 -r
@@ -146,6 +146,12 @@ case $SETUP_MODE in
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
                 setup_claude
+            fi
+
+            read -p "Install Tailscale? (y/n) [default: y] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                setup_tailscale
             fi
 
             read -p "Install Micromamba? (y/n) [default: n] " -n 1 -r
@@ -183,10 +189,16 @@ case $SETUP_MODE in
             setup_neovim
         fi
 
-        read -p "Install Docker? (y/n) [default: y] " -n 1 -r
+        read -p "Install Podman? (y/n) [default: y] " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            setup_docker
+            setup_podman
+        fi
+
+        read -p "Install Tailscale? (y/n) [default: y] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            setup_tailscale
         fi
 
         read -p "Install LaTeX? (y/n) [default: n] " -n 1 -r

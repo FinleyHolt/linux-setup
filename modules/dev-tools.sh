@@ -2,7 +2,7 @@
 
 ################################################################################
 # Development Tools Module
-# Neovim, Docker, LaTeX, Micromamba, CLI utilities, and cheat
+# Neovim, Podman, Tailscale, LaTeX, Micromamba, CLI utilities, and cheat
 ################################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -88,39 +88,46 @@ setup_neovim() {
     print_step "Neovim setup complete"
 }
 
-setup_docker() {
-    print_section "Docker Installation"
+setup_podman() {
+    print_section "Podman Installation"
 
-    print_step "Installing Docker..."
-    if ! command -v docker &> /dev/null; then
+    print_step "Installing Podman..."
+    if ! command -v podman &> /dev/null; then
         if [ "$DISTRO" = "ubuntu" ]; then
-            # Add Docker's official GPG key
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-            # Set up the repository
-            echo \
-              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-            pkg_update
-            pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            pkg_install podman podman-docker podman-compose
         elif [ "$DISTRO" = "fedora" ]; then
-            # Install Docker from official Fedora repos or Docker repo
-            pkg_install dnf-plugins-core
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            sudo systemctl start docker
-            sudo systemctl enable docker
+            pkg_install podman podman-docker podman-compose
         fi
-
-        # Add user to docker group
-        sudo usermod -aG docker "$USER"
     fi
 
-    print_step "Docker installation complete"
+    # Enable podman socket for Docker API compatibility
+    print_step "Enabling Podman socket for Docker API compatibility..."
+    systemctl --user enable --now podman.socket 2>/dev/null || true
+
+    print_step "Podman installation complete"
+    print_step "Note: 'podman-docker' provides 'docker' command compatibility"
+}
+
+setup_tailscale() {
+    print_section "Tailscale Installation"
+
+    print_step "Installing Tailscale..."
+    if ! command -v tailscale &> /dev/null; then
+        if [ "$DISTRO" = "ubuntu" ]; then
+            curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
+            curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list > /dev/null
+            pkg_update
+            pkg_install tailscale
+        elif [ "$DISTRO" = "fedora" ]; then
+            sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+            pkg_install tailscale
+        fi
+
+        sudo systemctl enable --now tailscaled
+    fi
+
+    print_step "Tailscale installation complete"
+    print_step "Run 'sudo tailscale up' to authenticate"
 }
 
 setup_latex() {
@@ -335,7 +342,8 @@ setup_claude() {
 # Main function to run all dev tools
 setup_dev_tools() {
     setup_neovim
-    setup_docker
+    setup_podman
+    setup_tailscale
     setup_latex
     setup_micromamba
     setup_cli_utilities
