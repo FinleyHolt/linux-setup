@@ -1,0 +1,118 @@
+# Neovim Cheatsheet — Custom IDE Setup
+# Leader key: Space
+
+# ==================== BASICS ====================
+
+# Navigation
+h / j / k / l                Move left/down/up/right
+w / b                        Next/previous word
+0 / $                        Start/end of line
+gg / G                       Top/bottom of file
+Ctrl+d / Ctrl+u              Half-page down/up
+
+# Editing
+i / a                        Insert before/after cursor
+o / O                        New line below/above
+dd / yy / p                  Delete/yank/paste line
+u / Ctrl+r                   Undo/redo
+ciw / diw                    Change/delete inner word
+gcc                          Toggle comment (line)
+gc                           Toggle comment (selection, visual mode)
+
+# Search
+/ pattern                    Search forward
+n / N                        Next/previous match
+
+# ==================== FILE MANAGEMENT ====================
+
+Ctrl+p                       Open Neo-tree (file explorer)
+q                            Close Neo-tree panel
+a                            New file (in Neo-tree)
+d                            Delete file (in Neo-tree)
+r                            Rename file (in Neo-tree)
+Enter                        Open file (in Neo-tree)
+
+Ctrl+f                       Find files (Telescope)
+Ctrl+l                       Live grep (Telescope)
+
+# ==================== AUTOCOMPLETION (blink.cmp) ====================
+
+# Completion popup appears automatically as you type
+Ctrl+Space                   Trigger completion manually
+Ctrl+n / Ctrl+p              Next/previous item
+Ctrl+y / Enter               Accept completion
+Ctrl+e                       Dismiss completion
+
+# ==================== TERMINAL ====================
+
+Ctrl+\                       Toggle floating terminal
+Space t f                    Float terminal
+Space t h                    Horizontal terminal
+Space t v                    Vertical terminal
+
+# ==================== GIT (gitsigns) ====================
+
+]h / [h                      Next/prev git hunk
+Space g s                    Stage hunk
+Space g r                    Reset hunk
+Space g p                    Preview hunk
+Space g b                    Blame line
+Space g d                    Diff this file
+
+# ==================== FORMATTING (conform) ====================
+
+# Format-on-save is enabled automatically
+Space c f                    Format buffer manually
+
+# Formatters by language:
+# Python    — isort + black
+# C/C++     — clang-format
+# Shell     — shfmt
+# Markdown  — prettier
+# JSON/YAML — prettier
+
+# ==================== DEBUGGING (DAP) ====================
+
+Space d b                    Toggle breakpoint
+Space d c                    Continue
+Space d i                    Step into
+Space d o                    Step over
+Space d r                    Open REPL
+Space d u                    Toggle debug UI
+
+# ==================== CMAKE ====================
+
+Space c g                    CMake generate
+Space c b                    CMake build
+Space c r                    CMake run
+Space c t                    Select build target
+
+# ==================== DIAGNOSTICS (trouble) ====================
+
+Space x x                    Workspace diagnostics
+Space x d                    Buffer diagnostics
+Space x l                    Location list
+Space x q                    Quickfix list
+Space x t                    TODOs
+Space f t                    Find TODOs (Telescope)
+
+# ==================== MARKDOWN ====================
+
+Space m p                    Toggle markdown preview (opens in browser)
+
+# ==================== WHICH-KEY ====================
+
+# Press Space and wait — popup shows all available keybindings
+# Groups: c=Code/CMake  d=Debug  g=Git  m=Markdown  t=Terminal  x=Diagnostics  f=Find
+
+# ==================== LSP (works automatically per language) ====================
+
+# Enabled servers:
+# Python    — pyright + ruff
+# C/C++     — clangd (with clang-tidy)
+# Bash/Zsh  — bash-language-server
+
+gd                           Go to definition
+gr                           Go to references
+K                            Hover docs
+Space rn                     Rename symbol (if configured)
