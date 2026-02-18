@@ -20,6 +20,9 @@ vim.opt.autoindent = true      -- Copy indent from the current line when startin
 
 vim.opt.smartindent = true     -- Smart auto-indentation on new lines
 
+vim.opt.wrap = true            -- Enable line wrapping
+vim.opt.linebreak = true       -- Wrap at word boundaries, not mid-word
+
 -- Clipboard settings
 
 vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
