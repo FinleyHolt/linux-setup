@@ -1,0 +1,24 @@
+# NOPASSWD for the exact NPS GlobalProtect VPN bring-up / heal commands that
+# net/nps-vpn.sh runs non-interactively. Scoped to specific binary + argument
+# vectors only; no general ip/gpclient privilege is granted. The
+# `ip link set tun0 mtu NNNN` entry is the path-MTU black-hole fix (see
+# net/nps-vpn.md); the four [0-9] globs bound it to tun0 and a 4-digit MTU.
+#
+# One-time install (run once, the only interactive sudo needed):
+#   sudo install -o root -g root -m 0440 \
+#     net/sudoers.d/nps-vpn /etc/sudoers.d/nps-vpn
+#   sudo visudo -cf /etc/sudoers.d/nps-vpn         # must print "parsed OK"
+#
+# Migrating from the old project drop-in? Remove it afterwards:
+#   sudo rm -f /etc/sudoers.d/drone-nps-vpn
+
+Cmnd_Alias NPS_VPN = \
+    /usr/bin/gpclient --fix-openssl connect vpn.nps.edu, \
+    /usr/bin/gpclient connect vpn.nps.edu, \
+    /usr/bin/gpclient disconnect, \
+    /usr/bin/ip link set tun0 mtu [0-9][0-9][0-9][0-9], \
+    /usr/bin/ip route del default dev tun0, \
+    /usr/bin/ip route add 172.20.0.0/16 dev tun0, \
+    /usr/bin/ip route del 172.20.0.0/16 dev tun0
+
+finley ALL=(root) NOPASSWD: NPS_VPN
