@@ -1,6 +1,6 @@
 ########################################
 #  Ghostty Config — Clean + Draggable  #
-#  Catppuccin Macchiato + No Tab Bar   #
+#  Catppuccin Macchiato + Titlebar Tabs #
 ########################################
 
 ###############
@@ -33,8 +33,8 @@ window-theme = ghostty
 window-titlebar-background = #24273A
 window-titlebar-foreground = #C6D0F5
 
-# Hide the tab bar completely (removes the extra bar with just an X)
-gtk-tabs-location = hidden
+# Tabs embedded in the titlebar (no separate tab bar)
+gtk-titlebar-style = tabs
 
 
 ###############
@@ -72,3 +72,7 @@ quit-after-last-window-closed = true
 command = /usr/bin/zsh
 
 keybind = shift+enter=text:\x1b\r
+keybind = ctrl+shift+t=new_tab
+keybind = ctrl+tab=next_tab
+keybind = ctrl+shift+tab=previous_tab
+keybind = ctrl+shift+w=close_surface

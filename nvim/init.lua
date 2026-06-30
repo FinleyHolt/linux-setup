@@ -23,6 +23,8 @@ vim.opt.smartindent = true     -- Smart auto-indentation on new lines
 vim.opt.wrap = true            -- Enable line wrapping
 vim.opt.linebreak = true       -- Wrap at word boundaries, not mid-word
 
+vim.opt.autoread = true        -- Auto-reload files changed outside Neovim
+
 -- Clipboard settings
 
 vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
@@ -112,4 +114,8 @@ vim.keymap.set('n', '<C-f>', builtin.find_files, {})
 vim.keymap.set('n', '<C-l>', builtin.live_grep, {})
 
 vim.keymap.set('n', '<C-p>', ':Neotree filesystem reveal left<CR>', {})
+
+-- Exit terminal insert mode with Ctrl+]
+vim.keymap.set('t', '<C-]>', [[<C-\><C-n>]], { desc = "Exit terminal mode" })
+
 

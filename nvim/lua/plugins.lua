@@ -36,6 +36,9 @@ return {
   require('plugins.cmake-tools'),       -- CMake generate/build/run
   require('plugins.markdown-preview'),  -- Live markdown preview in browser
 
+  -- Media
+  require('plugins.image'),             -- Inline image rendering (PNG, GIF, JPG, WebP)
+
   -- AI
   require('plugins.claudecode'),        -- Claude Code CLI integration
 
