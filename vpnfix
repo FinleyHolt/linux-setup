@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# One-shot NPS VPN hardening: install/refresh the NOPASSWD sudoers (with the
+# --cookie-cache connect variants) + the unattended autoheal crontab. Safe to
+# re-run; works on any machine with this repo cloned. Run: ~/vpnfix
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+git pull --ff-only 2>/dev/null || true
+
+# sudoers must name the real gpclient path (Ubuntu and Arch both use
+# /usr/bin, but verify rather than assume).
+GP="$(command -v gpclient || echo /usr/bin/gpclient)"
+SRC=net/sudoers.d/nps-vpn
+if [ "$GP" != /usr/bin/gpclient ]; then
+	TMP="$(mktemp)"
+	sed "s|/usr/bin/gpclient|$GP|g" "$SRC" >"$TMP"
+	SRC="$TMP"
+fi
+
+sudo install -o root -g root -m 0440 "$SRC" /etc/sudoers.d/nps-vpn
+sudo visudo -cf /etc/sudoers.d/nps-vpn
+sudo rm -f /etc/sudoers.d/drone-nps-vpn
+
+net/nps-vpn.sh install-autoheal
+ln -sf "$PWD/vpnfix" "$HOME/vpnfix"
+echo "vpnfix: sudoers installed + autoheal on. Future runs: ~/vpnfix"
