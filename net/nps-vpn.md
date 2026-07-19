@@ -62,8 +62,46 @@ Use the IP host alias (`ssh hamming-ip` → `172.20.32.70`); cobra is IP-address
 
 ### 5. GlobalProtect needs interactive SSO / HIP re-auth
 
-`tun0` never appears and the script warns. The SSO cookie expired — run `vpn`
-from a terminal where `gpclient` can prompt, then non-interactive heal resumes.
+`tun0` never appears and the script warns. The SSO cookie expired. With the
+`--cookie-cache` sudoers entries installed this is rare (the portal auth
+cookie persists across reconnects); when it does happen, see "Headless SAML"
+below — a desktop session is NOT required.
+
+### Headless SAML (no display on this box)
+
+The embedded GTK auth browser cannot start on a headless host ("Failed to
+initialize GTK"). Use gpclient's remote-browser mode instead (sudoers already
+allows it NOPASSWD):
+
+```bash
+# Terminal 1 — on this host, inside tmux (this process IS the VPN once up):
+sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote
+# it prints  http://<IP>:<PORT>/<token>  and waits
+```
+
+```bash
+# Terminal 2 — on the machine with the browser (LAN reachability to <IP>
+# is often blocked; the ssh forward always works):
+ssh -L <PORT>:<IP>:<PORT> <this-host>
+# then open  http://localhost:<PORT>/<token>  and complete the SSO.
+```
+
+If the final page shows an "Open GlobalProtect" button instead of finishing,
+right-click it → Copy link (a `globalprotectcallback:...` string) and paste
+that into Terminal 1. NPS runs TWO SAML rounds (portal, then gateway) — expect
+the dance twice, second round usually auto-redirects. `--cookie-cache` makes
+the result persist so the autoheal reconnects silently afterwards.
+
+### Unattended self-healing
+
+```bash
+~/Github/linux-setup/net/nps-vpn.sh install-autoheal   # user crontab, every 2 min
+```
+
+Reconciles VPN + split route + MTU + tunnels unattended (flock-guarded,
+log at `~/.local/state/nps-vpn/autoheal.log`, no root, survives reboot).
+The only event it cannot heal alone is a server-side SAML-cookie expiry —
+that needs the Headless SAML dance above once.
 
 ## One-time install
 

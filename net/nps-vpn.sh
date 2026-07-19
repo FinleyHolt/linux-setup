@@ -13,6 +13,9 @@
 #   down      tear down the autossh tunnels (NOT the VPN)
 #   reconnect force a clean GlobalProtect re-handshake (stale-session fix)
 #   heal      loop: reconcile every NET_HEAL_INTERVAL s (default 30)
+#   install-autoheal  user crontab entry: unattended reconcile every 2 min
+#                     (no root; survives reboot/logout; flock-guarded)
+#   remove-autoheal   remove that crontab entry
 #
 # VPN sudo is non-interactive via /etc/sudoers.d/nps-vpn (see net/sudoers.d/
 # nps-vpn in this repo for the one-time install). Full background + every
@@ -120,19 +123,35 @@ ensure_vpn() {
 		fi
 		return 0
 	fi
-	_log "VPN: bringing up GlobalProtect (vpn.nps.edu)."
-	# setsid -> the VPN client lives in its own session, so it survives this
-	# script (and any shell that triggered the heal) exiting.
-	setsid sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu \
-		>/dev/null 2>&1 &
+	# An earlier connect may still be mid-auth (SAML); never stack a second
+	# gpclient on top of it -- just wait on the one in flight.
+	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
+		_log "VPN: a gpclient connect is already in flight -- waiting on it."
+	else
+		_log "VPN: bringing up GlobalProtect (vpn.nps.edu)."
+		# --cookie-cache persists the portal auth cookie across sessions, so
+		# reconnects need no SAML until the server expires it. Needs the
+		# matching sudoers entry; probe and fall back to the bare command so
+		# an older installed sudoers still connects.
+		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
+		if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
+			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+		fi
+		# setsid -> the VPN client lives in its own session, so it survives
+		# this script (and any shell that triggered the heal) exiting.
+		setsid sudo -n "${_connect[@]}" >/dev/null 2>&1 &
+	fi
 	local _i
 	for _i in $(seq 1 30); do
 		_tun0_up && break
 		sleep 1
 	done
 	if ! _tun0_up; then
-		_log "VPN: WARNING tun0 did not appear. If sudo prompted, install"
-		_log "     net/sudoers.d/nps-vpn (one-time; see net/nps-vpn.md)."
+		_log "VPN: WARNING tun0 did not appear."
+		_log "     - sudo prompted? install net/sudoers.d/nps-vpn (one-time; see net/nps-vpn.md)."
+		_log "     - SAML cookie expired on a headless box? run:"
+		_log "         sudo /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote"
+		_log "       then open the printed URL through an ssh -L forward (nps-vpn.md, 'Headless SAML')."
 		return 1
 	fi
 	sudo -n /usr/bin/ip route del default dev tun0 2>/dev/null || true
@@ -294,6 +313,44 @@ cmd_heal() {
 	done
 }
 
+# Unattended self-healing: a user crontab entry reconciles the whole link
+# (VPN + split route + MTU + tunnels) every 2 minutes. flock skips a tick
+# while the previous one is still running; the log self-truncates. No root
+# needed; survives reboots and logouts (cron runs without a session).
+_AUTOHEAL_LOG="${HOME}/.local/state/nps-vpn/autoheal.log"
+_AUTOHEAL_TAG="# nps-vpn-autoheal"
+
+cmd_autoheal_tick() {
+	{
+		printf '%s ' "$(date -Is)"
+		cmd_up 2>&1 | tr '\n' '|'
+		echo
+	} >>"$_AUTOHEAL_LOG"
+	if [ "$(stat -c%s "$_AUTOHEAL_LOG" 2>/dev/null || echo 0)" -gt 200000 ]; then
+		tail -c 100000 "$_AUTOHEAL_LOG" >"${_AUTOHEAL_LOG}.tmp" &&
+			mv "${_AUTOHEAL_LOG}.tmp" "$_AUTOHEAL_LOG"
+	fi
+	return 0
+}
+
+cmd_install_autoheal() {
+	local self
+	self="$(readlink -f "${BASH_SOURCE[0]:-$0}")"
+	mkdir -p "$(dirname "$_AUTOHEAL_LOG")"
+	local line="*/2 * * * * flock -n /tmp/nps-vpn-autoheal.lock ${self} autoheal-tick ${_AUTOHEAL_TAG}"
+	(
+		crontab -l 2>/dev/null | grep -vF "${_AUTOHEAL_TAG}"
+		echo "$line"
+	) | crontab -
+	_log "autoheal: installed (user crontab, every 2 min). Log: ${_AUTOHEAL_LOG}"
+	_log "autoheal: remove with '$0 remove-autoheal'."
+}
+
+cmd_remove_autoheal() {
+	(crontab -l 2>/dev/null | grep -vF "${_AUTOHEAL_TAG}") | crontab -
+	_log "autoheal: removed."
+}
+
 # Sourced -> expose functions, do not dispatch.
 # shellcheck disable=SC2317
 if [ "${BASH_SOURCE[0]:-$0}" != "${0}" ]; then
@@ -308,8 +365,11 @@ status) cmd_status ;;
 down) cmd_down ;;
 reconnect) cmd_reconnect ;;
 heal) cmd_heal ;;
+autoheal-tick) cmd_autoheal_tick ;;
+install-autoheal) cmd_install_autoheal ;;
+remove-autoheal) cmd_remove_autoheal ;;
 *)
-	echo "usage: $0 {up|vpn|tunnels|status|down|reconnect|heal}" >&2
+	echo "usage: $0 {up|vpn|tunnels|status|down|reconnect|heal|install-autoheal|remove-autoheal}" >&2
 	exit 2
 	;;
 esac
