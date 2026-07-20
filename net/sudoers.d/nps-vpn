@@ -22,6 +22,7 @@ Cmnd_Alias NPS_VPN = \
     /usr/bin/ip link set tun0 mtu [0-9][0-9][0-9][0-9], \
     /usr/bin/ip route del default dev tun0, \
     /usr/bin/ip route add 172.20.0.0/16 dev tun0, \
-    /usr/bin/ip route del 172.20.0.0/16 dev tun0
+    /usr/bin/ip route del 172.20.0.0/16 dev tun0, \
+    /usr/bin/resolvectl domain tun0 ~nps.edu
 
 finley ALL=(root) NOPASSWD: NPS_VPN

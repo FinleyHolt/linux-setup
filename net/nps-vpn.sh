@@ -11,7 +11,10 @@
 #   tunnels   service tunnels only (assume VPN/path already good)
 #   status    VPN state + tun0 MTU + real HPC SSH health + per-port state
 #   down      tear down the autossh tunnels (NOT the VPN)
-#   reconnect force a clean GlobalProtect re-handshake (stale-session fix)
+#   reconnect re-assert route/MTU/DNS/tunnels (NO logout); --force to drop+re-login
+#   login     interactive re-auth (headless SAML) after SSO-cookie expiry;
+#             prints an ssh -L line + stamps the cookie mint for lifetime stats
+#   cookie    show SSO-cookie age + measured lifetime(s)
 #   heal      loop: reconcile every NET_HEAL_INTERVAL s (default 30)
 #   install-autoheal  user crontab entry: unattended reconcile every 2 min
 #                     (no root; survives reboot/logout; flock-guarded)
@@ -44,6 +47,15 @@ NET_HEAL_INTERVAL="${NET_HEAL_INTERVAL:-30}"
 # gpclient 2.5.x exposes no --mtu, so we set it on tun0 post-connect.
 NET_TUN_MTU="${NET_TUN_MTU:-1280}"
 _ALL_PORTS=("${_FWD[@]}" "${_AUX[@]}")
+
+# --- Cookie-lifetime + expiry state -------------------------------------------
+# When the SSO cookie expires the autoheal drops ${_STATE_DIR}/cookie_expired
+# (it can't self-heal that -- only an interactive `vpn login` can). An
+# interactive-shell hook in zshrc reads that marker and warns at the prompt, so
+# a dead VPN meets you at the terminal -- no push service, no extra app.
+_STATE_DIR="${HOME}/.local/state/nps-vpn"
+_MINT_FILE="${_STATE_DIR}/cookie_minted"       # epoch of last interactive SAML
+_CONNECT_LOG="${_STATE_DIR}/last_connect.log"  # output of the last headless dial
 
 _log() { printf '  %s\n' "$*" >&2; }
 
@@ -128,6 +140,15 @@ ensure_vpn() {
 	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
 		_log "VPN: a gpclient connect is already in flight -- waiting on it."
 	else
+		# Once the SSO cookie is known-expired, a headless --cookie-cache dial only
+		# jumps to the embedded browser and panics -- it CANNOT recover here. Stop
+		# dialing (no sudo spam every 2 min) and point at the one thing that works.
+		# The marker is cleared by a successful `vpn login` / tun0 coming up.
+		if [ -f "${_STATE_DIR}/cookie_expired" ]; then
+			_log "VPN: SSO cookie expired -- automated reconnect can't help (NPS needs"
+			_log "     an interactive login). Recover with:  vpn login   (on finley-ub-dt)."
+			return 1
+		fi
 		_log "VPN: bringing up GlobalProtect (vpn.nps.edu)."
 		# --cookie-cache persists the portal auth cookie across sessions, so
 		# reconnects need no SAML until the server expires it. Needs the
@@ -139,7 +160,8 @@ ensure_vpn() {
 		fi
 		# setsid -> the VPN client lives in its own session, so it survives
 		# this script (and any shell that triggered the heal) exiting.
-		setsid sudo -n "${_connect[@]}" >/dev/null 2>&1 &
+		mkdir -p "${_STATE_DIR}" 2>/dev/null || true
+		setsid sudo -n "${_connect[@]}" >"${_CONNECT_LOG}" 2>&1 &
 	fi
 	local _i
 	for _i in $(seq 1 30); do
@@ -205,11 +227,29 @@ _reap_dead_tunnels() {
 	done
 }
 
+# GlobalProtect resets tun0's DNS to NPS with a catch-all (~.) routing domain on
+# every connect, so ALL name lookups tunnel through NPS -- slow, a privacy leak,
+# and concurrent public lookups (several Claude Code chats) fail when the tunnel
+# hiccups. Restrict tun0 to *.nps.edu; everything else resolves off the VPN.
+# Idempotent (only acts when ~. is present); re-applied on every reconcile.
+# Needs the resolvectl NOPASSWD sudoers entry.
+_ensure_split_dns() {
+	_tun0_up || return 0
+	command -v resolvectl >/dev/null 2>&1 || return 0
+	resolvectl status tun0 2>/dev/null | grep -q 'DNS Domain:.*~\.' || return 0
+	if sudo -n /usr/bin/resolvectl domain tun0 '~nps.edu' 2>/dev/null; then
+		_log "VPN: split-DNS applied (tun0 -> ~nps.edu; public DNS stays off-VPN)."
+	else
+		_log "VPN: WARNING split-DNS not applied -- re-install sudoers.d/nps-vpn (adds resolvectl)."
+	fi
+}
+
 ensure_tunnels() {
 	# Re-assert the safe MTU here too: this is the path the per-shell auto-heal
 	# takes, so a GP auto-reconnect that reset tun0 to 1422 gets corrected
 	# without a full `up`. No-op when tun0 is down (on-campus).
 	_set_tun_mtu
+	_ensure_split_dns
 	_reap_dead_tunnels
 	local fwd=() p
 	for p in "${_ALL_PORTS[@]}"; do
@@ -288,16 +328,36 @@ cmd_down() {
 }
 
 cmd_reconnect() {
-	# Force a clean GlobalProtect re-handshake. Use when tun0 is up but dead
-	# (e.g. you joined a new Wi-Fi and the old session went stale): plain `up`
-	# sees the lingering interface and won't re-auth. Tear the session down,
-	# wait for tun0 to drop, then run the normal up (reconnect + route + MTU).
-	_log "reconnect: disconnecting GlobalProtect."
-	sudo -n /usr/bin/gpclient disconnect 2>/dev/null || true
-	local _i
-	for _i in $(seq 1 15); do _tun0_up || break; sleep 1; done
-	_tun0_up && _log "reconnect: WARNING tun0 still present after disconnect."
+	# SAFETY: on NPS, `gpclient disconnect` LOGS OUT the 30-day session and there
+	# is no silent cookie reconnect (--cookie-cache jumps to an embedded browser
+	# that can't run on a headless box), so a blind disconnect strands you at a
+	# full interactive re-login. Default behaviour therefore NEVER disconnects --
+	# it re-asserts split route + MTU + DNS + tunnels, which fixes the common
+	# "network changed / tun0 stale" case. Use `reconnect --force` only when you
+	# accept that a `vpn login` will be needed afterwards.
+	if [ "${1:-}" = "--force" ]; then
+		_log "reconnect: --force -- disconnecting. This LOGS OUT the NPS session;"
+		_log "           you WILL need a full 'vpn login' afterwards."
+		sudo -n /usr/bin/gpclient disconnect 2>/dev/null || true
+		local _i
+		for _i in $(seq 1 15); do _tun0_up || break; sleep 1; done
+		cmd_up
+		return
+	fi
+	if ! _tun0_up; then
+		_log "reconnect: VPN is down -- NPS needs an interactive login to recover:"
+		_log "             vpn login        (run on finley-ub-dt)"
+		ensure_tunnels
+		return
+	fi
+	_log "reconnect: re-asserting split route + MTU + DNS + tunnels (no logout)."
 	cmd_up
+	if ! _hpc_ssh_ok; then
+		_log "reconnect: WARNING tun0 up but HPC SSH still failing -- session looks"
+		_log "           dead. NPS can't silently reconnect; recover with:"
+		_log "             vpn login                     (full re-login), or"
+		_log "             nps-vpn.sh reconnect --force   (drop first, then re-login)"
+	fi
 }
 
 cmd_up() {
@@ -320,6 +380,16 @@ cmd_heal() {
 _AUTOHEAL_LOG="${HOME}/.local/state/nps-vpn/autoheal.log"
 _AUTOHEAL_TAG="# nps-vpn-autoheal"
 
+# Keep GlobalProtect's inactivity timer from firing by pushing a packet through
+# tun0 each reconcile. Outbound alone counts -- the gateway resets its idle
+# timer on any traffic through the tunnel, reply or not. No-op if tun0 is down.
+# (The autossh tunnels already generate traffic when SSH is up; this covers the
+# gap when the tunnels are down but the VPN is still up.)
+_tunnel_keepalive() {
+	_tun0_up || return 0
+	ping -c1 -W1 -I tun0 "${NET_HPC_IP}" >/dev/null 2>&1 || true
+}
+
 cmd_autoheal_tick() {
 	{
 		printf '%s ' "$(date -Is)"
@@ -329,6 +399,14 @@ cmd_autoheal_tick() {
 	if [ "$(stat -c%s "$_AUTOHEAL_LOG" 2>/dev/null || echo 0)" -gt 200000 ]; then
 		tail -c 100000 "$_AUTOHEAL_LOG" >"${_AUTOHEAL_LOG}.tmp" &&
 			mv "${_AUTOHEAL_LOG}.tmp" "$_AUTOHEAL_LOG"
+	fi
+	# Detect the one failure autoheal can't fix -- SSO-cookie expiry -- and drop a
+	# marker the shell hook warns on. On recovery clear it + send tunnel keepalive.
+	if ! _tun0_up && ! _hpc_direct && _saml_reauth_needed; then
+		_record_cookie_expiry
+	elif _tun0_up; then
+		rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null || true
+		_tunnel_keepalive
 	fi
 	return 0
 }
@@ -351,6 +429,206 @@ cmd_remove_autoheal() {
 	_log "autoheal: removed."
 }
 
+# --- SSO-cookie expiry: detect, measure, nudge --------------------------------
+
+# True when the last headless dial shows a human SAML login is required (cached
+# cookie expired): the embedded browser can't start on a headless box ("Failed
+# to initialize GTK") and gpclient logs a SAML launch. Suppressed while a
+# remote-browser login is already in flight -- a human is handling it.
+_saml_reauth_needed() {
+	pgrep -f 'gpclient .*--browser remote' >/dev/null 2>&1 && return 1
+	[ -r "${_CONNECT_LOG}" ] || return 1
+	grep -qiE 'Failed to initialize GTK|SAML auth launch|authentication is required' \
+		"${_CONNECT_LOG}" 2>/dev/null
+}
+
+# Stamp the first tick of an expiry episode and, if we know when the cookie was
+# minted, log how long it lasted -- the empirical SSO-cookie lifetime.
+_record_cookie_expiry() {
+	local exp="${_STATE_DIR}/cookie_expired"
+	[ -f "$exp" ] && return 0
+	mkdir -p "${_STATE_DIR}" 2>/dev/null || true
+	date +%s >"$exp"
+	[ -r "${_MINT_FILE}" ] || return 0
+	local mint now life_h
+	mint="$(cat "${_MINT_FILE}" 2>/dev/null)"
+	[ -n "${mint:-}" ] || return 0
+	now="$(date +%s)"
+	life_h=$(( (now - mint) / 3600 ))
+	printf '%s cookie lasted ~%sh (minted %s)\n' "$(date -Is)" "$life_h" \
+		"$(date -d "@${mint}" -Is 2>/dev/null)" >>"${_STATE_DIR}/cookie_lifetime.log"
+}
+
+# --- Interactive re-auth: driven from ONE terminal on finley-ub-dt ------------
+# `vpn login` (run on finley-ub-dt) walks both NPS SAML rounds with prompts. Per
+# round you run ONE `ssh -L` + open a URL on the LAPTOP, finish in the browser,
+# then paste the callback back into THIS terminal. No second command, no hidden
+# round-2 URL, no machine mix-ups.
+
+_GPAUTH_TMUX="gpauth"
+
+# Push text to this terminal's clipboard via OSC52 (DCS-wrapped inside tmux so it
+# survives tmux -> Ghostty). Non-zero if there's no controlling terminal.
+_clip_to_terminal() {
+	[ -c /dev/tty ] || return 1
+	local b64
+	b64=$(printf '%s' "$1" | base64 2>/dev/null | tr -d '\n') || return 1
+	if [ -n "${TMUX:-}" ]; then
+		printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$b64" >/dev/tty 2>/dev/null
+	else
+		printf '\033]52;c;%s\a' "$b64" >/dev/tty 2>/dev/null
+	fi
+}
+
+# Wait (~40s) for a SAML round's auth URL. Echo "IP PORT TOKEN" for a local auth
+# server (use ssh -L), or "MS <url>" when only the piped Microsoft URL exists.
+# Returns 0 with no output if tun0 comes up meanwhile (round not needed).
+_login_round_url() {
+	local kind="$1" i url gw port
+	for i in $(seq 1 40); do
+		_tun0_up && return 0
+		url=""
+		if [ "$kind" = gateway ]; then
+			gw=$(pgrep -f 'gpauth vpn\.nps\.edu --gateway' | head -1)
+			if [ -n "$gw" ]; then
+				port=$(ss -tlnpH 2>/dev/null | grep "pid=${gw}," | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+				if [ -z "$port" ]; then
+					url=$(tr '\0' '\n' <"/proc/${gw}/cmdline" 2>/dev/null | grep -m1 '^https://login.microsoftonline.com')
+					[ -n "$url" ] && { printf 'MS %s\n' "$url"; return 0; }
+				else
+					url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -p -S -60 2>/dev/null | grep -oE "http://[0-9.]+:${port}/[a-f0-9-]+" | tail -1)
+				fi
+			fi
+		else
+			url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -p 2>/dev/null | grep -oE 'http://[0-9.]+:[0-9]+/[a-f0-9-]+' | tail -1)
+		fi
+		case "$url" in
+		http://*)
+			local ip pt tok
+			ip=${url#http://}; ip=${ip%%:*}
+			pt=${url#http://*:}; pt=${pt%%/*}
+			tok=${url##*/}
+			printf '%s %s %s\n' "$ip" "$pt" "$tok"
+			return 0 ;;
+		esac
+		sleep 1
+	done
+	return 1
+}
+
+# Drive one SAML round: fetch its URL, print LAPTOP instructions, read the
+# callback from THIS terminal, inject it into the gpclient pane.
+_login_round() {
+	local kind="$1" parts cb msurl
+	parts=$(_login_round_url "$kind")
+	_tun0_up && return 0
+	printf '\n' >&2
+	# shellcheck disable=SC2086
+	set -- $parts
+	if [ "${1:-}" = MS ]; then
+		msurl="$2"
+		_log "-- ${kind} round -- no local URL; using the direct Microsoft URL:"
+		if _clip_to_terminal "$msurl"; then
+			_log "   -> pushed to your CLIPBOARD; paste it into a browser tab on your laptop."
+		else
+			_log "   open this on your laptop:"
+			printf '  %s\n' "$msurl" >&2
+		fi
+	elif [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
+		_log "-- ${kind} round -- ON YOUR LAPTOP (one terminal):"
+		_log "     ssh -L ${2}:${1}:${2} finley-ub-dt"
+		_log "   then open in your browser:  http://localhost:${2}/${3}"
+	else
+		_log "login: couldn't get the ${kind} URL in time. Inspect: tmux attach -t ${_GPAUTH_TMUX}"
+		return 1
+	fi
+	printf '  Finish it in the browser, then paste the %s globalprotectcallback here + Enter:\n  > ' "$kind" >&2
+	IFS= read -r cb || return 1
+	[ -z "$cb" ] && { _log "login: no callback entered -- aborting."; return 1; }
+	tmux set-buffer -- "$cb"
+	tmux paste-buffer -t "${_GPAUTH_TMUX}"
+	tmux send-keys -t "${_GPAUTH_TMUX}" Enter
+	_log "   ${kind} callback submitted."
+}
+
+# Fallback one-shot injector: vpn login --callback '<globalprotectcallback:...>'
+# (run on finley-ub-dt while a `vpn login` is already in flight).
+_login_callback() {
+	{ command -v tmux >/dev/null 2>&1 && tmux has-session -t "${_GPAUTH_TMUX}" 2>/dev/null; } ||
+		{ _log "login: no auth in flight -- start it on finley-ub-dt first: vpn login"; return 1; }
+	tmux set-buffer -- "$1"
+	tmux paste-buffer -t "${_GPAUTH_TMUX}"
+	tmux send-keys -t "${_GPAUTH_TMUX}" Enter
+	local i
+	for i in $(seq 1 60); do
+		if _tun0_up; then
+			date +%s >"${_MINT_FILE}"; rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null
+			_log "login: connected."; return 0
+		fi
+		sleep 2
+	done
+	_log "login: callback sent; not up. If a gateway round is pending, run: vpn login (fresh)."
+}
+
+# vpn login                 -> drive both SAML rounds from this terminal
+# vpn login --callback STR  -> inject a single callback (fallback)
+cmd_login() {
+	if [ "${1:-}" = "--callback" ]; then shift; _login_callback "$*"; return $?; fi
+	if _tun0_up; then _log "login: already connected (tun0 up) -- nothing to do."; return 0; fi
+	command -v tmux >/dev/null 2>&1 || { _log "login: needs tmux -- run this on finley-ub-dt."; return 1; }
+	mkdir -p "${_STATE_DIR}" 2>/dev/null || true
+	# Clear a STUCK previous login attempt so round 2 can bind its port -- but only
+	# disconnect if a gpclient is actually running. A blind disconnect when nothing
+	# is running would log out a server session a reboot might have left alive.
+	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
+		sudo -n /usr/bin/gpclient disconnect >/dev/null 2>&1 || true
+	fi
+	tmux kill-session -t "${_GPAUTH_TMUX}" 2>/dev/null || true
+	tmux new-session -d -s "${_GPAUTH_TMUX}" -x 220 -y 50
+	tmux send-keys -t "${_GPAUTH_TMUX}" \
+		'sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote' C-m
+	local host
+	host="$(hostname -s 2>/dev/null || hostname)"
+	printf '\n' >&2
+	_log "==== NPS VPN login (running on ${host}; this must be finley-ub-dt) ===="
+	_log "TWO quick SAML rounds. For EACH: on your LAPTOP run the one ssh -L +"
+	_log "open the URL, finish in the browser (silent if your Microsoft session"
+	_log "is live), then paste the callback back HERE. Move fast -- each URL is"
+	_log "single-use and expires in a few minutes."
+	_log "======================================================================"
+	_login_round portal  || { _log "login: portal round did not complete."; return 1; }
+	_login_round gateway || { _log "login: gateway round did not complete."; return 1; }
+	local i
+	for i in $(seq 1 30); do _tun0_up && break; sleep 1; done
+	if _tun0_up; then
+		date +%s >"${_MINT_FILE}"; rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null
+		_log "login: CONNECTED. Normalising routes/DNS/MTU + laying tunnels..."
+		ensure_vpn >/dev/null 2>&1 || true
+		ensure_tunnels
+		_log "login: done -- 30-day session active. Verify with: vpn-status"
+	else
+		_log "login: callbacks submitted but tun0 didn't appear. Inspect: tmux attach -t ${_GPAUTH_TMUX}"
+		return 1
+	fi
+}
+# Report the SSO cookie's age and any measured lifetimes.
+cmd_cookie() {
+	if [ -r "${_MINT_FILE}" ]; then
+		local mint now age_h
+		mint="$(cat "${_MINT_FILE}")"
+		now="$(date +%s)"
+		age_h=$(( (now - mint) / 3600 ))
+		echo "cookie minted: $(date -d "@${mint}" 2>/dev/null)  (age ~${age_h}h)"
+	else
+		echo "cookie minted: unknown (no interactive 'vpn login' recorded yet)"
+	fi
+	if [ -r "${_STATE_DIR}/cookie_lifetime.log" ]; then
+		echo "measured lifetimes:"
+		tail -5 "${_STATE_DIR}/cookie_lifetime.log" | sed 's/^/  /'
+	fi
+	_tun0_up && echo "state: tun0 UP" || echo "state: tun0 down"
+}
+
 # Sourced -> expose functions, do not dispatch.
 # shellcheck disable=SC2317
 if [ "${BASH_SOURCE[0]:-$0}" != "${0}" ]; then
@@ -368,8 +646,10 @@ heal) cmd_heal ;;
 autoheal-tick) cmd_autoheal_tick ;;
 install-autoheal) cmd_install_autoheal ;;
 remove-autoheal) cmd_remove_autoheal ;;
+login) shift; cmd_login "$@" ;;
+cookie) cmd_cookie ;;
 *)
-	echo "usage: $0 {up|vpn|tunnels|status|down|reconnect|heal|install-autoheal|remove-autoheal}" >&2
+	echo "usage: $0 {up|vpn|login|tunnels|status|cookie|down|reconnect|heal|install-autoheal|remove-autoheal}" >&2
 	exit 2
 	;;
 esac
