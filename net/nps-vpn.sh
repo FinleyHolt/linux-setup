@@ -596,8 +596,16 @@ cmd_login() {
 	fi
 	tmux kill-session -t "${_GPAUTH_TMUX}" 2>/dev/null || true
 	tmux new-session -d -s "${_GPAUTH_TMUX}" -x 220 -y 50
+	# Prefer the widened reconnect-timeout dial (rides out dongle outages on the same
+	# session). Fall back to the plain dial if the installed sudoers hasn't been
+	# updated for it, so a stale sudoers can never break login -- reinstall
+	# net/sudoers.d/nps-vpn (run ~/vpnfix.sh) to actually get the longer window.
+	local _login_dial="sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT} --browser remote"
+	if ! sudo -n -l /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}" --browser remote >/dev/null 2>&1; then
+		_login_dial="sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote"
+	fi
 	tmux send-keys -t "${_GPAUTH_TMUX}" \
-		"sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT} --browser remote" C-m
+		"${_login_dial}" C-m
 	local host
 	host="$(hostname -s 2>/dev/null || hostname)"
 	printf '\n' >&2
