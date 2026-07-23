@@ -18,6 +18,8 @@ Cmnd_Alias NPS_VPN = \
     /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache, \
     /usr/bin/gpclient connect vpn.nps.edu --cookie-cache, \
     /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote, \
+    /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9], \
+    /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9] --browser remote, \
     /usr/bin/gpclient disconnect, \
     /usr/bin/ip link set tun0 mtu [0-9][0-9][0-9][0-9], \
     /usr/bin/ip route del default dev tun0, \

@@ -46,6 +46,14 @@ NET_HEAL_INTERVAL="${NET_HEAL_INTERVAL:-30}"
 # stalls forever. 1280 (the IPv6 minimum) has ample headroom on any path.
 # gpclient 2.5.x exposes no --mtu, so we set it on tun0 post-connect.
 NET_TUN_MTU="${NET_TUN_MTU:-1280}"
+# GlobalProtect/openconnect silently restores a DROPPED tunnel to the SAME 30-day
+# session (no SAML, no phone MFA) as long as the underlay returns within this
+# window. The default is 300s (5 min); a flaky USB WiFi dongle is often out longer
+# than that, and once openconnect gives up the session is gone -> full interactive
+# SAML + Authenticator push. Widen it so multi-minute dongle outages are ridden
+# out silently -- this is the main lever for "fewer logins". 4 digits (the sudoers
+# glob bounds it to [0-9][0-9][0-9][0-9]); env-overridable.
+NET_RECONNECT_TIMEOUT="${NET_RECONNECT_TIMEOUT:-1200}"
 _ALL_PORTS=("${_FWD[@]}" "${_AUX[@]}")
 
 # --- Cookie-lifetime + expiry state -------------------------------------------
@@ -154,9 +162,12 @@ ensure_vpn() {
 		# reconnects need no SAML until the server expires it. Needs the
 		# matching sudoers entry; probe and fall back to the bare command so
 		# an older installed sudoers still connects.
-		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
+		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}")
 		if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
-			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
+			if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
+				_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+			fi
 		fi
 		# setsid -> the VPN client lives in its own session, so it survives
 		# this script (and any shell that triggered the heal) exiting.
@@ -586,7 +597,7 @@ cmd_login() {
 	tmux kill-session -t "${_GPAUTH_TMUX}" 2>/dev/null || true
 	tmux new-session -d -s "${_GPAUTH_TMUX}" -x 220 -y 50
 	tmux send-keys -t "${_GPAUTH_TMUX}" \
-		'sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote' C-m
+		"sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT} --browser remote" C-m
 	local host
 	host="$(hostname -s 2>/dev/null || hostname)"
 	printf '\n' >&2
