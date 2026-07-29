@@ -159,14 +159,21 @@ ensure_vpn() {
 		fi
 		_log "VPN: bringing up GlobalProtect (vpn.nps.edu)."
 		# --cookie-cache persists the portal auth cookie across sessions, so
-		# reconnects need no SAML until the server expires it. Needs the
-		# matching sudoers entry; probe and fall back to the bare command so
-		# an older installed sudoers still connects.
-		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}")
-		if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
-			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
+		# reconnects need no SAML until the server expires it. --cookie-cache
+		# exists from gpclient 2.6; 2.5.x remembers the cookie BY DEFAULT and
+		# REJECTS the flag with a usage error — which this branch discards,
+		# so a wrong vector reads as "VPN never comes up". Probe the
+		# INSTALLED CLIENT first (a 2.5.x box goes straight to the bare
+		# command, same cookie behavior), then cascade through the
+		# sudoers-allowed vectors.
+		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+		if /usr/bin/gpclient connect --help 2>/dev/null | grep -q -- --cookie-cache; then
+			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}")
 			if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
-				_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+				_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
+				if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
+					_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+				fi
 			fi
 		fi
 		# setsid -> the VPN client lives in its own session, so it survives
