@@ -501,6 +501,12 @@ _clip_to_terminal() {
 # Wait (~40s) for a SAML round's auth URL. Echo "IP PORT TOKEN" for a local auth
 # server (use ssh -L), or "MS <url>" when only the piped Microsoft URL exists.
 # Returns 0 with no output if tun0 comes up meanwhile (round not needed).
+# -pJ (join wrapped lines) is load-bearing: gpauth's URL line is ~140 chars and
+# the pane can come up far narrower than the -x 220 it was created with, so a
+# bare -p returns the URL split across rows and the grep silently matches only
+# the first fragment. That yields a truncated token, which gpauth answers with a
+# bare "Forbidden" -- indistinguishable from an expired URL, and it cost an
+# afternoon of re-login attempts once.
 _login_round_url() {
 	local kind="$1" i url gw port
 	for i in $(seq 1 40); do
@@ -514,11 +520,11 @@ _login_round_url() {
 					url=$(tr '\0' '\n' <"/proc/${gw}/cmdline" 2>/dev/null | grep -m1 '^https://login.microsoftonline.com')
 					[ -n "$url" ] && { printf 'MS %s\n' "$url"; return 0; }
 				else
-					url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -p -S -60 2>/dev/null | grep -oE "http://[0-9.]+:${port}/[a-f0-9-]+" | tail -1)
+					url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -pJ -S -60 2>/dev/null | grep -oE "http://[0-9.]+:${port}/[a-f0-9-]+" | tail -1)
 				fi
 			fi
 		else
-			url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -p 2>/dev/null | grep -oE 'http://[0-9.]+:[0-9]+/[a-f0-9-]+' | tail -1)
+			url=$(tmux capture-pane -t "${_GPAUTH_TMUX}" -pJ 2>/dev/null | grep -oE 'http://[0-9.]+:[0-9]+/[a-f0-9-]+' | tail -1)
 		fi
 		case "$url" in
 		http://*)
