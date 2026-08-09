@@ -13,7 +13,8 @@
 #   down      tear down the autossh tunnels (NOT the VPN)
 #   reconnect re-assert route/MTU/DNS/tunnels (NO logout); --force to drop+re-login
 #   login     interactive re-auth (headless SAML) after SSO-cookie expiry;
-#             prints an ssh -L line + stamps the cookie mint for lifetime stats
+#             prints ONE tailnet URL per round + stamps the cookie mint
+#   bookmarklet  print the iOS Safari bookmarklet that lifts the callback
 #   cookie    show SSO-cookie age + measured lifetime(s)
 #   heal      loop: reconcile every NET_HEAL_INTERVAL s (default 30)
 #   install-autoheal  user crontab entry: unattended reconcile every 2 min
@@ -31,6 +32,7 @@
 #   NET_SOCKS_PORT    dynamic -D SOCKS port (default 1080; 0 disables)
 #   NET_HEAL_INTERVAL heal-loop seconds     (default 30)
 #   NET_TUN_MTU       tun0 MTU after connect (default 1280; see nps-vpn.md)
+#   NET_AUTH_RELAY_PORT  fixed port the SAML round URL is published on (18080)
 
 set -u
 
@@ -46,6 +48,11 @@ NET_HEAL_INTERVAL="${NET_HEAL_INTERVAL:-30}"
 # stalls forever. 1280 (the IPv6 minimum) has ample headroom on any path.
 # gpclient 2.5.x exposes no --mtu, so we set it on tun0 post-connect.
 NET_TUN_MTU="${NET_TUN_MTU:-1280}"
+# gpauth binds its one-shot SAML auth server to this box's LAN address, on a new
+# ephemeral port each round, so the login URL was only openable after an ssh -L.
+# `login` forwards that socket to this fixed port on the Tailscale address, which
+# both the laptop and the phone already reach -- one tappable link, no ssh -L.
+NET_AUTH_RELAY_PORT="${NET_AUTH_RELAY_PORT:-18080}"
 # GlobalProtect/openconnect silently restores a DROPPED tunnel to the SAME 30-day
 # session (no SAML, no phone MFA) as long as the underlay returns within this
 # window. The default is 300s (5 min); a flaky USB WiFi dongle is often out longer
@@ -245,6 +252,27 @@ _reap_dead_tunnels() {
 	done
 }
 
+# Reap sshfs mounts whose server went away. With `-o reconnect` sshfs retries
+# forever instead of erroring, so every stat on a dead mount blocks with no
+# bound -- and since the mountpoints sit directly in $HOME, that wedges anything
+# that walks $HOME, shell `cd` completion included (it stats every sibling to
+# filter for directories). Left alone a dead mount survives for days; this caps
+# it at one tick. A hard-timeout stat is the liveness probe -- FUSE waits are
+# killable, so the probe never inherits the hang -- and the unmount is lazy
+# because a plain one blocks on the same dead server. Not NPS-specific (field
+# boxes hang the same way); it lives here because this is the reconciler that
+# already runs every 2 minutes.
+_reap_dead_sshfs() {
+	local mp
+	for mp in $(findmnt -rn -t fuse.sshfs -o TARGET 2>/dev/null); do
+		timeout -s KILL 10 stat -c '%i' "$mp" >/dev/null 2>&1 && continue
+		_log "sshfs: reaping unresponsive mount ${mp}"
+		fusermount3 -u -z "$mp" 2>/dev/null ||
+			fusermount -u -z "$mp" 2>/dev/null ||
+			umount -l "$mp" 2>/dev/null || true
+	done
+}
+
 # GlobalProtect resets tun0's DNS to NPS with a catch-all (~.) routing domain on
 # every connect, so ALL name lookups tunnel through NPS -- slow, a privacy leak,
 # and concurrent public lookups (several Claude Code chats) fail when the tunnel
@@ -411,6 +439,7 @@ _tunnel_keepalive() {
 cmd_autoheal_tick() {
 	{
 		printf '%s ' "$(date -Is)"
+		_reap_dead_sshfs 2>&1 | tr '\n' '|'
 		cmd_up 2>&1 | tr '\n' '|'
 		echo
 	} >>"$_AUTOHEAL_LOG"
@@ -479,9 +508,9 @@ _record_cookie_expiry() {
 
 # --- Interactive re-auth: driven from ONE terminal on finley-ub-dt ------------
 # `vpn login` (run on finley-ub-dt) walks both NPS SAML rounds with prompts. Per
-# round you run ONE `ssh -L` + open a URL on the LAPTOP, finish in the browser,
-# then paste the callback back into THIS terminal. No second command, no hidden
-# round-2 URL, no machine mix-ups.
+# round it prints ONE tailnet URL: open it on whatever device you are holding,
+# finish in the browser, paste the callback back into THIS terminal. No tunnel,
+# no second command, no hidden round-2 URL, no machine mix-ups.
 
 _GPAUTH_TMUX="gpauth"
 
@@ -496,6 +525,54 @@ _clip_to_terminal() {
 	else
 		printf '\033]52;c;%s\a' "$b64" >/dev/tty 2>/dev/null
 	fi
+}
+
+# This box's Tailscale address -- the one host:port both the phone and the laptop
+# can open without a tunnel. Empty when tailscaled is down.
+_tailnet_ip() { tailscale ip -4 2>/dev/null | head -1; }
+
+# Forward NET_AUTH_RELAY_PORT on the tailnet address to gpauth's ephemeral LAN
+# socket, so the round URL is a stable tappable link. Reachable only from the
+# tailnet: socat binds the Tailscale address, not every interface. Echoes the
+# host:port to publish, or nothing when it can't (caller falls back to ssh -L).
+_auth_relay_up() {
+	local ip="$1" port="$2" ts pid
+	ts="$(_tailnet_ip)"
+	[ -n "$ts" ] || return 1
+	command -v socat >/dev/null 2>&1 || return 1
+	_auth_relay_down
+	socat "TCP-LISTEN:${NET_AUTH_RELAY_PORT},bind=${ts},reuseaddr,fork" \
+		"TCP:${ip}:${port}" >/dev/null 2>&1 &
+	pid=$!
+	sleep 0.3
+	kill -0 "$pid" 2>/dev/null || return 1
+	printf '%s:%s\n' "$ts" "${NET_AUTH_RELAY_PORT}"
+}
+
+# Teardown keys off the port, not a remembered PID: the caller reads the URL out
+# of _auth_relay_up through a command substitution, so any PID the function set
+# would die with that subshell and the relay would outlive the login.
+_auth_relay_down() {
+	pkill -f "TCP-LISTEN:${NET_AUTH_RELAY_PORT},bind=" 2>/dev/null
+	return 0
+}
+
+# iOS Safari refuses the globalprotectcallback: scheme with a bare "address is
+# invalid" alert and keeps the URL out of the address bar, so there is nothing to
+# copy the way a desktop browser leaves it. This bookmarklet lifts the callback
+# out of the page that is still loaded underneath the alert and drops it in a
+# textarea to select. Save it once as a bookmark on the phone.
+_BOOKMARKLET='javascript:(function(){var m=document.documentElement.outerHTML.match(/globalprotectcallback:[^"'"'"'<>\s]+/);document.open();document.write("<textarea style=\"width:99%;height:70vh;font-size:16px\">"+(m?m[0]:document.documentElement.outerHTML)+"</textarea>");document.close();})()'
+
+cmd_bookmarklet() {
+	cat >&2 <<-EOF
+		Save this as a bookmark on the phone (name it "GP callback"), then edit the
+		bookmark's URL and paste this in place of the address:
+
+	EOF
+	printf '%s\n\n' "${_BOOKMARKLET}"
+	_log "Use it on the page Safari is showing when it says the address is invalid:"
+	_log "dismiss the alert, tap the bookmark, then select-all + copy the textarea."
 }
 
 # Wait (~40s) for a SAML round's auth URL. Echo "IP PORT TOKEN" for a local auth
@@ -543,7 +620,7 @@ _login_round_url() {
 # Drive one SAML round: fetch its URL, print LAPTOP instructions, read the
 # callback from THIS terminal, inject it into the gpclient pane.
 _login_round() {
-	local kind="$1" parts cb msurl
+	local kind="$1" parts cb msurl pub
 	parts=$(_login_round_url "$kind")
 	_tun0_up && return 0
 	printf '\n' >&2
@@ -553,21 +630,36 @@ _login_round() {
 		msurl="$2"
 		_log "-- ${kind} round -- no local URL; using the direct Microsoft URL:"
 		if _clip_to_terminal "$msurl"; then
-			_log "   -> pushed to your CLIPBOARD; paste it into a browser tab on your laptop."
+			_log "   -> pushed to your CLIPBOARD; paste it into a browser tab."
 		else
-			_log "   open this on your laptop:"
+			_log "   open this in a browser:"
 			printf '  %s\n' "$msurl" >&2
 		fi
 	elif [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
-		_log "-- ${kind} round -- ON YOUR LAPTOP (one terminal):"
-		_log "     ssh -L ${2}:${1}:${2} finley-ub-dt"
-		_log "   then open in your browser:  http://localhost:${2}/${3}"
+		pub="$(_auth_relay_up "$1" "$2")"
+		if [ -n "$pub" ]; then
+			_log "-- ${kind} round -- open this on the phone or the laptop:"
+			printf '\n  http://%s/%s\n\n' "$pub" "$3" >&2
+		else
+			_log "-- ${kind} round -- no tailnet relay; fall back to a tunnel:"
+			_log "     ssh -L ${2}:${1}:${2} finley-ub-dt"
+			_log "   then open in your browser:  http://localhost:${2}/${3}"
+		fi
 	else
 		_log "login: couldn't get the ${kind} URL in time. Inspect: tmux attach -t ${_GPAUTH_TMUX}"
 		return 1
 	fi
-	printf '  Finish it in the browser, then paste the %s globalprotectcallback here + Enter:\n  > ' "$kind" >&2
-	IFS= read -r cb || return 1
+	_log "Finish the login. The browser then fails on a globalprotectcallback:"
+	_log "address -- that string is what goes below."
+	_log "  laptop: copy it out of the failed tab's address bar."
+	_log "  phone:  dismiss Safari's alert, tap the 'GP callback' bookmarklet"
+	_log "          (print it with: vpn bookmarklet), copy the textarea."
+	printf '  Paste the %s globalprotectcallback here + Enter:\n  > ' "$kind" >&2
+	IFS= read -r cb || { _auth_relay_down; return 1; }
+	_auth_relay_down
+	# A phone paste can arrive with wrapping whitespace; the callback is a scheme
+	# plus base64, so no interior whitespace can be load-bearing.
+	cb="${cb//[[:space:]]/}"
 	[ -z "$cb" ] && { _log "login: no callback entered -- aborting."; return 1; }
 	tmux set-buffer -- "$cb"
 	tmux paste-buffer -t "${_GPAUTH_TMUX}"
@@ -679,9 +771,10 @@ autoheal-tick) cmd_autoheal_tick ;;
 install-autoheal) cmd_install_autoheal ;;
 remove-autoheal) cmd_remove_autoheal ;;
 login) shift; cmd_login "$@" ;;
+bookmarklet) cmd_bookmarklet ;;
 cookie) cmd_cookie ;;
 *)
-	echo "usage: $0 {up|vpn|login|tunnels|status|cookie|down|reconnect|heal|install-autoheal|remove-autoheal}" >&2
+	echo "usage: $0 {up|vpn|login|bookmarklet|tunnels|status|cookie|down|reconnect|heal|install-autoheal|remove-autoheal}" >&2
 	exit 2
 	;;
 esac
