@@ -52,6 +52,7 @@ vpn() {
         edge|--edge) socks=1080; launch_edge=1 ;;
         login)  shift; "$_NET_ENSURE" login "$@"; return ;;
         cookie) "$_NET_ENSURE" cookie; return ;;
+        bookmarklet) "$_NET_ENSURE" bookmarklet; return ;;
     esac
     NET_SOCKS_PORT="$socks" "$_NET_ENSURE" up
     (( launch_edge )) && _edge_mil
@@ -61,6 +62,7 @@ vpn-status()    { "$_NET_ENSURE" status; }
 vpn-reconnect() { "$_NET_ENSURE" reconnect; }
 vpn-login()     { "$_NET_ENSURE" login "$@"; }
 vpn-cookie()    { "$_NET_ENSURE" cookie; }
+vpn-bookmarklet() { "$_NET_ENSURE" bookmarklet; }
 vpn-stop() {    # tear down the HPC service tunnels only -- leaves the VPN UP
   "$_NET_ENSURE" down
 }
