@@ -70,27 +70,45 @@ below — a desktop session is NOT required.
 ### Headless SAML (no display on this box)
 
 The embedded GTK auth browser cannot start on a headless host ("Failed to
-initialize GTK"). Use gpclient's remote-browser mode instead (sudoers already
-allows it NOPASSWD):
+initialize GTK"), so gpclient runs in remote-browser mode and the browser is
+whatever device you are holding. One command drives both rounds:
 
 ```bash
-# Terminal 1 — on this host, inside tmux (this process IS the VPN once up):
-sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote
-# it prints  http://<IP>:<PORT>/<token>  and waits
+vpn login          # on this host; needs tmux, sudoers already allows the dial
 ```
 
-```bash
-# Terminal 2 — on the machine with the browser (LAN reachability to <IP>
-# is often blocked; the ssh forward always works):
-ssh -L <PORT>:<IP>:<PORT> <this-host>
-# then open  http://localhost:<PORT>/<token>  and complete the SSO.
+Per round it prints ONE link on the Tailscale address:
+
+```
+http://<tailscale-ip>:18080/<token>
 ```
 
-If the final page shows an "Open GlobalProtect" button instead of finishing,
-right-click it → Copy link (a `globalprotectcallback:...` string) and paste
-that into Terminal 1. NPS runs TWO SAML rounds (portal, then gateway) — expect
-the dance twice, second round usually auto-redirects. `--cookie-cache` makes
-the result persist so the autoheal reconnects silently afterwards.
+Open it on the phone or the laptop — both are tailnet nodes, so neither needs
+a tunnel. gpauth itself binds only this box's LAN address on a fresh ephemeral
+port, which is why the link is a socat forward from a fixed port; the forward
+binds the Tailscale address alone and is torn down when the round's callback
+is read. `NET_AUTH_RELAY_PORT` moves the port. With tailscaled down, `vpn
+login` falls back to printing the old `ssh -L <PORT>:<IP>:<PORT>` recipe.
+
+Finish the SSO, then hand the `globalprotectcallback:...` string back to the
+`vpn login` prompt:
+
+| Last page | Laptop | Phone |
+|---|---|---|
+| "Open GlobalProtect" button | right-click → Copy link | long-press → Copy Link |
+| auto-redirected, browser rejects the address | copy it from the failed tab's address bar | `vpn bookmarklet` → save once as a bookmark, tap it on that page, copy the textarea |
+
+The bookmarklet exists because iOS Safari answers an unknown URL scheme with a
+bare "address is invalid" alert and keeps the address out of reach; it lifts
+the callback out of the page still loaded underneath the alert.
+
+NPS runs TWO SAML rounds (portal, then gateway) — expect the dance twice, the
+second usually auto-redirects. `--cookie-cache` makes the result persist so the
+autoheal reconnects silently afterwards.
+
+`net/test_auth_relay.sh` is the guard on the forward: it stands a throwaway
+HTTP server in for gpauth and checks reachability, the tailnet-only bind, and
+the release.
 
 ### Unattended self-healing
 

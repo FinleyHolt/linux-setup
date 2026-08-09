@@ -617,8 +617,8 @@ _login_round_url() {
 	return 1
 }
 
-# Drive one SAML round: fetch its URL, print LAPTOP instructions, read the
-# callback from THIS terminal, inject it into the gpclient pane.
+# Drive one SAML round: publish its URL on the tailnet, read the callback from
+# THIS terminal, inject it into the gpclient pane.
 _login_round() {
 	local kind="$1" parts cb msurl pub
 	parts=$(_login_round_url "$kind")
@@ -649,11 +649,13 @@ _login_round() {
 		_log "login: couldn't get the ${kind} URL in time. Inspect: tmux attach -t ${_GPAUTH_TMUX}"
 		return 1
 	fi
-	_log "Finish the login. The browser then fails on a globalprotectcallback:"
-	_log "address -- that string is what goes below."
-	_log "  laptop: copy it out of the failed tab's address bar."
-	_log "  phone:  dismiss Safari's alert, tap the 'GP callback' bookmarklet"
-	_log "          (print it with: vpn bookmarklet), copy the textarea."
+	_log "Finish the login. What goes below is the globalprotectcallback: string."
+	_log "  'Open GlobalProtect' button on the last page? Its link IS the string:"
+	_log "     phone: long-press -> Copy Link.   laptop: right-click -> Copy link."
+	_log "  Page redirected instead and the browser rejected the address?"
+	_log "     laptop: copy it out of the failed tab's address bar."
+	_log "     phone:  dismiss Safari's alert, tap the 'GP callback' bookmarklet"
+	_log "             (print it with: vpn bookmarklet), copy the textarea."
 	printf '  Paste the %s globalprotectcallback here + Enter:\n  > ' "$kind" >&2
 	IFS= read -r cb || { _auth_relay_down; return 1; }
 	_auth_relay_down
@@ -715,10 +717,10 @@ cmd_login() {
 	host="$(hostname -s 2>/dev/null || hostname)"
 	printf '\n' >&2
 	_log "==== NPS VPN login (running on ${host}; this must be finley-ub-dt) ===="
-	_log "TWO quick SAML rounds. For EACH: on your LAPTOP run the one ssh -L +"
-	_log "open the URL, finish in the browser (silent if your Microsoft session"
-	_log "is live), then paste the callback back HERE. Move fast -- each URL is"
-	_log "single-use and expires in a few minutes."
+	_log "TWO quick SAML rounds. For EACH: open the printed link on whatever you"
+	_log "are holding -- phone or laptop, both are on the tailnet -- finish in the"
+	_log "browser (silent if your Microsoft session is live), then paste the"
+	_log "callback back HERE. Move fast: each URL is single-use and expires."
 	_log "======================================================================"
 	_login_round portal  || { _log "login: portal round did not complete."; return 1; }
 	_login_round gateway || { _log "login: gateway round did not complete."; return 1; }
