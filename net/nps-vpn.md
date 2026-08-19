@@ -67,6 +67,28 @@ Use the IP host alias (`ssh hamming-ip` → `172.20.32.70`); cobra is IP-address
 cookie persists across reconnects); when it does happen, see "Headless SAML"
 below — a desktop session is NOT required.
 
+### 6. Dial wedged on a webview nobody can see
+
+**Symptom:** no `tun0`, `*.nps.edu` DNS fails, and a `gpclient ... connect
+vpn.nps.edu` has been running for hours. Every `vpn` matches the in-flight
+guard and logs "already in flight -- waiting on it", forever. Tail of
+`~/.local/state/nps-vpn/last_connect.log`: `browser=embedded`, then
+`Window not raised: Failed to raise window: GlobalProtect Login`.
+
+**Cause:** the cookie expired, so the dial needed SAML. The headless design
+assumes the embedded browser cannot start (`Failed to initialize GTK`) and is
+caught by that log line — but finleydt runs an `Xvfb :99` for Playwright, and
+`DISPLAY` rides through `sudo` on its built-in `env_keep`. gpauth *found* a
+display, opened an auth window nobody can see, and waited. Too headed to fail,
+too headless to finish.
+
+**Fix (automatic):** the dial now runs under `env -u DISPLAY -u
+WAYLAND_DISPLAY -u XAUTHORITY`, so it fails in seconds on any caller's
+environment, and a dial older than `NET_DIAL_WEDGED_AFTER` (300s; a human
+`--browser remote` round is exempt) is reported wedged instead of waited on —
+it drops the `cookie_expired` marker and stops. Recover with `vpn login`.
+Guard: `net/test_stale_dial.sh`.
+
 ### Headless SAML (no display on this box)
 
 The embedded GTK auth browser cannot start on a headless host ("Failed to
@@ -120,6 +142,13 @@ Reconciles VPN + split route + MTU + tunnels unattended (flock-guarded,
 log at `~/.local/state/nps-vpn/autoheal.log`, no root, survives reboot).
 The only event it cannot heal alone is a server-side SAML-cookie expiry —
 that needs the Headless SAML dance above once.
+
+**Never pause the cron for a login.** It already stands down on its own:
+`_saml_reauth_needed` returns false while a `--browser remote` dial is
+running, and `ensure_vpn` never stacks a second gpclient. A hand-commented
+crontab line sat paused for 12 days, and because the tick is what writes the
+`cookie_expired` marker, the next expiry went unannounced. Restore the line
+with `nps-vpn.sh install-autoheal`.
 
 ## One-time install
 
