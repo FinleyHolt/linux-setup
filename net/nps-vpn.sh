@@ -61,6 +61,11 @@ NET_AUTH_RELAY_PORT="${NET_AUTH_RELAY_PORT:-18080}"
 # out silently -- this is the main lever for "fewer logins". 4 digits (the sudoers
 # glob bounds it to [0-9][0-9][0-9][0-9]); env-overridable.
 NET_RECONNECT_TIMEOUT="${NET_RECONNECT_TIMEOUT:-1200}"
+# A headless dial that is still "in flight" after this long is WEDGED, not
+# mid-auth: with any display it can reach (an Xvfb for Playwright counts)
+# gpclient opens an embedded SAML webview nobody can see and waits forever.
+# Bounding it is what turns that into a loud stop -- see _wedged_dial_pid.
+NET_DIAL_WEDGED_AFTER="${NET_DIAL_WEDGED_AFTER:-300}"
 _ALL_PORTS=("${_FWD[@]}" "${_AUX[@]}")
 
 # --- Cookie-lifetime + expiry state -------------------------------------------
@@ -153,6 +158,14 @@ ensure_vpn() {
 	# An earlier connect may still be mid-auth (SAML); never stack a second
 	# gpclient on top of it -- just wait on the one in flight.
 	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
+		local _wedged
+		if _wedged="$(_wedged_dial_pid)"; then
+			_log "VPN: gpclient pid ${_wedged} has been dialing for over"
+			_log "     $((NET_DIAL_WEDGED_AFTER / 60))min -- wedged on a SAML webview nobody can see,"
+			_log "     not mid-auth. Recover with:  vpn login   (on finley-ub-dt)."
+			_record_cookie_expiry
+			return 1
+		fi
 		_log "VPN: a gpclient connect is already in flight -- waiting on it."
 	else
 		# Once the SSO cookie is known-expired, a headless --cookie-cache dial only
@@ -186,7 +199,14 @@ ensure_vpn() {
 		# setsid -> the VPN client lives in its own session, so it survives
 		# this script (and any shell that triggered the heal) exiting.
 		mkdir -p "${_STATE_DIR}" 2>/dev/null || true
-		setsid sudo -n "${_connect[@]}" >"${_CONNECT_LOG}" 2>&1 &
+		# env -u DISPLAY: this box runs an Xvfb for Playwright and DISPLAY rides
+		# through sudo on its built-in env_keep, so a cookie-expired dial FOUND a
+		# display, opened an invisible auth window and hung for hours instead of
+		# failing. Denied a display it fails GTK init in seconds, which is what
+		# _saml_reauth_needed was written to catch. `env` precedes `sudo`: the
+		# sudoers Cmnd_Alias covers gpclient, not /usr/bin/env.
+		setsid env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY \
+			sudo -n "${_connect[@]}" >"${_CONNECT_LOG}" 2>&1 &
 	fi
 	local _i
 	for _i in $(seq 1 30); do
@@ -194,6 +214,10 @@ ensure_vpn() {
 		sleep 1
 	done
 	if ! _tun0_up; then
+		# Record the expiry HERE, not only from the autoheal tick: a paused cron
+		# meant the marker (and the zshrc prompt warning that reads it) went
+		# unwritten for 12 days while every dial failed.
+		_saml_reauth_needed && _record_cookie_expiry
 		_log "VPN: WARNING tun0 did not appear."
 		_log "     - sudo prompted? install net/sudoers.d/nps-vpn (one-time; see net/nps-vpn.md)."
 		_log "     - SAML cookie expired on a headless box? run:"
@@ -482,6 +506,25 @@ cmd_remove_autoheal() {
 # cookie expired): the embedded browser can't start on a headless box ("Failed
 # to initialize GTK") and gpclient logs a SAML launch. Suppressed while a
 # remote-browser login is already in flight -- a human is handling it.
+# Echo the pid of a headless dial that has been running longer than
+# NET_DIAL_WEDGED_AFTER, non-zero when there is none. The ^ anchor is
+# load-bearing: an unanchored pgrep -f also matches any shell whose argv merely
+# MENTIONS gpclient (a `zsh -c` wrapper around a diagnostic command does), and
+# such a match would read as a wedged VPN.
+_wedged_dial_pid() {
+	local pid age
+	for pid in $(pgrep -f '^/usr/bin/gpclient .*connect vpn\.nps\.edu' 2>/dev/null); do
+		# A human is genuinely typing through a --browser remote round; that is
+		# never wedged, however long they take.
+		case "$(ps -o args= -p "$pid" 2>/dev/null)" in
+		*'--browser remote'*) continue ;;
+		esac
+		age="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+		[ "${age:-0}" -gt "${NET_DIAL_WEDGED_AFTER}" ] && { echo "$pid"; return 0; }
+	done
+	return 1
+}
+
 _saml_reauth_needed() {
 	pgrep -f 'gpclient .*--browser remote' >/dev/null 2>&1 && return 1
 	[ -r "${_CONNECT_LOG}" ] || return 1
