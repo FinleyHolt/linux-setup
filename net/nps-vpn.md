@@ -1,8 +1,13 @@
 # NPS HPC networking (laptop)
 
-Laptop-side GlobalProtect VPN + HPC SSH tunnels. Lives here (dotfiles), **not**
-in any project repo, so the `vpn` command works regardless of which
-`DroneProjects-*` worktree/branch is checked out.
+Laptop-side GlobalProtect VPN link: connect, split route, safe MTU, split DNS.
+Lives here (dotfiles), **not** in any project repo, so the `vpn` command works
+regardless of which worktree/branch is checked out.
+
+It lays no port forwards. A project that needs a service port carries its own
+per-site tunnel layer (WORLDSInternal: `compute/networking/net_ensure.sh`),
+which derives the ssh target and the forward set from the site actually running
+the daemons. This script owns the LINK; a project owns its ports.
 
 - Script: [`net/nps-vpn.sh`](nps-vpn.sh) — `~/.zshrc` points `_NET_ENSURE` at it.
 - Sudoers: [`net/sudoers.d/nps-vpn`](sudoers.d/nps-vpn) → `/etc/sudoers.d/nps-vpn`.
@@ -12,22 +17,21 @@ in any project repo, so the `vpn` command works regardless of which
 
 | command | effect |
 |---|---|
-| `vpn` | VPN + safe MTU + HPC service tunnels (no SOCKS / organic Edge) |
-| `vpn edge` | same, plus SOCKS 1080 + the cobra-routed `.mil` Edge |
-| `vpn-status` | VPN state, tun0 MTU, per-port state, **real HPC SSH health** |
+| `vpn` | VPN + split route + safe MTU + split DNS |
+| `vpn-status` | VPN state, tun0 MTU, split-DNS scope, **real HPC SSH health** |
 | `vpn-reconnect` | force a clean GlobalProtect re-handshake (stale-session fix) |
-| `vpn-stop` | tear down tunnels + disconnect GlobalProtect |
+| `vpn-logout` | disconnect GlobalProtect (drops the 30-day session) |
 | `edge` | organic Microsoft Edge (direct, default profile) |
 
-CLI: `nps-vpn.sh {up|vpn|tunnels|status|down|reconnect|heal}`. The `vpn`
-subcommand does the VPN step only (connect + split route + MTU + health) — it
-is what project repos delegate to (see *Project delegation* below).
+CLI: `nps-vpn.sh {up|vpn|status|reconnect|heal|login|cookie|bookmarklet}`.
+`up` and `vpn` are the same thing — the link step — and `vpn` is the name
+project repos delegate to (see *Project delegation* below).
 
 ## Failure modes & fixes
 
 ### 1. MTU black hole (SSH hangs off-campus) — the main one
 
-**Symptom:** `ssh cobra` opens TCP and exchanges SSH banners, then hangs at
+**Symptom:** `ssh hamming` opens TCP and exchanges SSH banners, then hangs at
 `debug1: expecting SSH2_MSG_KEX_ECDH_REPLY`. `vpn-status` → `HPC SSH: FAIL`.
 
 **Cause:** GlobalProtect brings `tun0` up at MTU 1422; on residential / Xfinity
@@ -36,7 +40,7 @@ Small packets pass; the large `SSH2_MSG_KEX_ECDH_REPLY` (big with the
 `sntrup761x25519` PQ kex) is dropped.
 
 **Fix (automatic):** `nps-vpn.sh` sets `tun0` MTU to `NET_TUN_MTU` (default
-1280, the IPv6 minimum) after every connect, and re-asserts on `tunnels`/`heal`.
+1280, the IPv6 minimum) after every connect, and re-asserts on every reconcile.
 
 **If 1280 still fails somewhere:** `NET_TUN_MTU=1200 vpn`, or re-tune with
 `bash net/vpn_mtu_test.sh` (sweeps descending MTUs, leaves tun0 at the largest
@@ -58,7 +62,8 @@ block that contains an HPC IP.
 
 ### 4. DNS for `*.nps.edu` doesn't resolve
 
-Use the IP host alias (`ssh hamming-ip` → `172.20.32.70`); cobra is IP-addressed.
+Use the IP host alias (`ssh hamming-ip` → `172.20.32.70`). The health probe and
+the keepalive already address the box numerically for this reason.
 
 ### 5. GlobalProtect needs interactive SSO / HIP re-auth
 
@@ -138,7 +143,7 @@ the release.
 ~/Github/linux-setup/net/nps-vpn.sh install-autoheal   # user crontab, every 2 min
 ```
 
-Reconciles VPN + split route + MTU + tunnels unattended (flock-guarded,
+Reconciles VPN + split route + MTU + split DNS unattended (flock-guarded,
 log at `~/.local/state/nps-vpn/autoheal.log`, no root, survives reboot).
 The only event it cannot heal alone is a server-side SAML-cookie expiry —
 that needs the Headless SAML dance above once.
@@ -161,11 +166,19 @@ sudo rm -f /etc/sudoers.d/drone-nps-vpn           # remove the old project drop-
 
 ## Project delegation
 
-DroneProjects' `scripts/net_ensure.sh` still owns its profile-driven HPC tunnel
-orchestration (used by `compute/bringup.sh`, `hpc/serve/*.sh`, …), but its VPN
-step delegates here: when `~/Github/linux-setup/net/nps-vpn.sh` is present it
-calls `nps-vpn.sh vpn`, so the MTU/health logic lives in exactly one place. On
-the cluster (no dotfiles, VPN not needed) it falls back to its inline no-op.
+WORLDSInternal's `compute/networking/net_ensure.sh` owns per-site tunnel
+orchestration: it derives the ssh target and the forward set from the active
+site, and lays nothing for a site declaring `on_node` (hamming does, so an
+on-node run reaches its own daemons over loopback). Its VPN step delegates
+here through `compute/users/finley/networking/link_ensure.sh`, which calls
+`nps-vpn.sh vpn`, so the MTU/health logic lives in exactly one place. On the
+cluster (no dotfiles, VPN not needed) it falls back to its inline no-op.
+
+Keeping the two apart is what this split is for: a fixed forward set baked into
+the link script outlives the box it was written for. This one pointed at a
+reclaimed host for nine days after that host was retired, and the 2-minute
+reconcile turned into a few failed SSH auths a minute against a dead account —
+which NPS's IDS reported as a brute-force attempt on the account (2026-08).
 
 ## Quick troubleshooting
 

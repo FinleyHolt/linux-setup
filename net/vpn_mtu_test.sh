@@ -39,11 +39,10 @@ echo "default route    : $(ip route show default | head -1)"
 echo
 
 echo "---- BASELINE ssh @ MTU $ORIG ----"
-echo "  cobra   : $(ssh_probe cobra)"
 echo "  hamming : $(ssh_probe hamming)"
 echo
 echo "---- where ssh stalls @ MTU $ORIG (verbose) ----"
-timeout 12 ssh -vv -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=8 cobra true 2>&1 \
+timeout 12 ssh -vv -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=8 hamming true 2>&1 \
     | grep -E 'Connection established|Remote protocol|KEXINIT|KEX_ECDH_REPLY|Permission denied|timed out' \
     | tail -5
 echo "  (stalling at 'expecting SSH2_MSG_KEX_ECDH_REPLY' == MTU black hole)"
@@ -56,11 +55,9 @@ for MTU in 1380 1280 1240 1200 1100; do
         echo "  could not set MTU $MTU (sudo failed?) -- skipping"
         continue
     fi
-    c=$(ssh_probe cobra)
     h=$(ssh_probe hamming)
-    echo "  cobra   : $c"
     echo "  hamming : $h"
-    if [[ "$c" == OK* ]]; then
+    if [[ "$h" == OK* ]]; then
         WORK=$MTU
         echo "  => SSH KEY EXCHANGE COMPLETES at MTU $MTU (largest working)"
         break
