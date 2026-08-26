@@ -94,6 +94,28 @@ environment, and a dial older than `NET_DIAL_WEDGED_AFTER` (300s; a human
 it drops the `cookie_expired` marker and stops. Recover with `vpn login`.
 Guard: `net/test_stale_dial.sh`.
 
+### 7. A name resolves but the connect hangs — subnet outside the split
+
+**Symptom:** `ssh jensen` (or any new NPS host) hangs with no banner, no
+refusal, no timeout message. DNS is fine — the name resolves. `vpn-status` says
+`HPC SSH: OK`, because hamming is on a prefix that IS routed.
+
+**Cause:** split DNS is scoped to `~nps.edu`, so *every* NPS name resolves the
+moment tun0 is up. The split ROUTE is a short list of prefixes. A host whose
+subnet is not on that list resolves correctly and then leaves over the LAN
+default toward a private address the local network does not route: no RST, no
+ICMP, just a hang. Cost real time when the DGX GB300 landed on `10.0.248.0/24`
+(2026-08-26) while the split carried `172.20.0.0/16` alone.
+
+**Diagnose:** `ip route get <ip>` — if it names your LAN interface instead of
+`tun0`, that is the whole story. `nps-vpn.sh status` lists every prefix and
+flags the ones not routed.
+
+**Fix:** add the prefix to `NET_SPLIT_ROUTES` in `nps-vpn.sh` **and** add its
+`add`/`del` pair to `net/sudoers.d/nps-vpn`. Both, always: a sudoers glob cannot
+follow a shell variable, and the asserts run under `sudo -n ... 2>/dev/null ||
+true`, so a prefix listed in only the script fails silently and forever.
+
 ### Headless SAML (no display on this box)
 
 The embedded GTK auth browser cannot start on a headless host ("Failed to
