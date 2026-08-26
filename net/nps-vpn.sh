@@ -48,6 +48,17 @@ NET_HPC_HOST="${NET_HPC_HOST:-finley.holt@hamming-sub1.uc.nps.edu}"
 # address from NET_HPC_HOST would make the off-VPN on-campus check a DNS failure
 # rather than a reachability answer. 172.20.32.70 is hamming-sub1 (ssh hamming-ip).
 NET_HPC_IP="${NET_HPC_IP:-172.20.32.70}"
+# Split-tunnel prefixes. 172.20.0.0/16 is campus + hamming; 10.0.248.0/24 is the
+# ai.nps.edu DGX GB300 (jensen 10.0.248.9, runai 10.0.248.129) -- its names
+# resolve through tun0's NPS DNS but its subnet sat outside the split, so every
+# ssh to jensen left over the LAN default toward a private /8 nobody there
+# routes: no RST, no timeout, just a hang.
+#
+# Each entry needs its own literal add/del pair in sudoers.d/nps-vpn. A sudoers
+# glob cannot follow a shell variable, so adding a prefix here without adding it
+# there fails SILENTLY -- the asserts below run under `sudo -n ... || true`.
+# That pairing is the reason this stays a hardcoded list and not an env knob.
+NET_SPLIT_ROUTES=(172.20.0.0/16 10.0.248.0/24)
 NET_HEAL_INTERVAL="${NET_HEAL_INTERVAL:-30}"
 # Tunnel MTU. GlobalProtect brings tun0 up at 1422, too high for many real
 # underlays (residential / CGNAT / PPPoE): the TCP handshake succeeds but
@@ -92,8 +103,23 @@ _hpc_direct() {
 
 _tun0_up() { ip link show tun0 >/dev/null 2>&1; }
 
+# True only when EVERY prefix is on tun0, so a partial split (one prefix
+# present, one missing) reads as missing and gets re-asserted -- a half-laid
+# split is exactly the state that reaches hamming while hanging on jensen.
 _split_route_present() {
-	ip route show 172.20.0.0/16 2>/dev/null | grep -q 'dev tun0'
+	local _p
+	for _p in "${NET_SPLIT_ROUTES[@]}"; do
+		ip route show "${_p}" 2>/dev/null | grep -q 'dev tun0' || return 1
+	done
+}
+
+# Assert every split prefix on tun0. Idempotent (`ip route add` on an existing
+# route is a no-op error we swallow). Callers drop tun0's default route first.
+_add_split_routes() {
+	local _p
+	for _p in "${NET_SPLIT_ROUTES[@]}"; do
+		sudo -n /usr/bin/ip route add "${_p}" dev tun0 2>/dev/null || true
+	done
 }
 
 # Lower tun0's MTU so SSH's large key-exchange reply (and any other big frames)
@@ -134,7 +160,7 @@ ensure_vpn() {
 		if ! _split_route_present; then
 			_log "VPN: tun0 up but split route missing -- re-adding."
 			sudo -n /usr/bin/ip route del default dev tun0 2>/dev/null || true
-			sudo -n /usr/bin/ip route add 172.20.0.0/16 dev tun0 2>/dev/null || true
+			_add_split_routes
 		else
 			_log "VPN: tun0 up, split route present."
 		fi
@@ -219,8 +245,8 @@ ensure_vpn() {
 		return 1
 	fi
 	sudo -n /usr/bin/ip route del default dev tun0 2>/dev/null || true
-	sudo -n /usr/bin/ip route add 172.20.0.0/16 dev tun0 2>/dev/null || true
-	_log "VPN: split tunnel active (172.20.0.0/16 via tun0)."
+	_add_split_routes
+	_log "VPN: split tunnel active (${NET_SPLIT_ROUTES[*]} via tun0)."
 	_set_tun_mtu
 	_ensure_split_dns
 	if _hpc_ssh_ok; then
@@ -275,6 +301,13 @@ cmd_status() {
 	elif _tun0_up; then
 		echo "VPN:        tun0 UP (mtu $(cat /sys/class/net/tun0/mtu 2>/dev/null)), split route $(_split_route_present &&
 			echo present || echo MISSING)"
+		# Name the prefixes individually: a half-laid split reaches hamming while
+		# hanging on jensen, and "MISSING" alone does not say which one is gone.
+		local _p
+		for _p in "${NET_SPLIT_ROUTES[@]}"; do
+			printf '  %-16s %s\n' "${_p}" "$(ip route show "${_p}" 2>/dev/null | grep -q 'dev tun0' &&
+				echo 'via tun0' || echo 'NOT ROUTED -- traffic leaves over the LAN default')"
+		done
 		echo "HPC SSH:    $(_hpc_ssh_ok && echo 'OK (key exchange completes)' ||
 			echo 'FAIL -- path/MTU/stale; try: nps-vpn.sh reconnect')"
 	else

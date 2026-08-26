@@ -4,6 +4,12 @@
 # `ip link set tun0 mtu NNNN` entry is the path-MTU black-hole fix (see
 # net/nps-vpn.md); the four [0-9] globs bound it to tun0 and a 4-digit MTU.
 #
+# One add/del pair per split-tunnel prefix, matching NET_SPLIT_ROUTES in
+# net/nps-vpn.sh: 172.20.0.0/16 is campus + hamming, 10.0.248.0/24 is the
+# ai.nps.edu DGX GB300. A sudoers glob cannot follow a shell variable, so each
+# prefix is spelled out here -- and a prefix the script asserts but this file
+# omits fails SILENTLY, because the script runs `sudo -n ... 2>/dev/null`.
+#
 # One-time install (run once, the only interactive sudo needed):
 #   sudo install -o root -g root -m 0440 \
 #     net/sudoers.d/nps-vpn /etc/sudoers.d/nps-vpn
@@ -25,6 +31,8 @@ Cmnd_Alias NPS_VPN = \
     /usr/bin/ip route del default dev tun0, \
     /usr/bin/ip route add 172.20.0.0/16 dev tun0, \
     /usr/bin/ip route del 172.20.0.0/16 dev tun0, \
+    /usr/bin/ip route add 10.0.248.0/24 dev tun0, \
+    /usr/bin/ip route del 10.0.248.0/24 dev tun0, \
     /usr/bin/resolvectl domain tun0 ~nps.edu
 
 finley ALL=(root) NOPASSWD: NPS_VPN
