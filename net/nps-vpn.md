@@ -18,7 +18,7 @@ the daemons. This script owns the LINK; a project owns its ports.
 | command | effect |
 |---|---|
 | `vpn` | VPN + split route + safe MTU + split DNS |
-| `vpn-status` | VPN state, tun0 MTU, split-DNS scope, **real HPC SSH health** |
+| `vpn-status` | the dial vector sudoers grants, VPN state, tun0 MTU, split-DNS scope, **real HPC SSH health** (the one ssh this script runs; by hand only) |
 | `vpn-reconnect` | force a clean GlobalProtect re-handshake (stale-session fix) |
 | `vpn-logout` | disconnect GlobalProtect (drops the 30-day session) |
 | `edge` | organic Microsoft Edge (direct, default profile) |
@@ -67,32 +67,35 @@ the keepalive already address the box numerically for this reason.
 
 ### 5. GlobalProtect needs interactive SSO / HIP re-auth
 
-`tun0` never appears and the script warns. The SSO cookie expired. With the
-`--cookie-cache` sudoers entries installed this is rare (the portal auth
-cookie persists across reconnects); when it does happen, see "Headless SAML"
-below — a desktop session is NOT required.
+`tun0` never appears; the dial's log (`~/.local/state/nps-vpn/last_connect.log`)
+says `SAML auth launch`. The server session is gone: the 30-day login
+lifetime ran out, or — far more often — the client logged it out on its way
+down after an underlay blip (mode 8). The autoheal ends the dial the moment
+that line appears, drops the `cookie_expired` marker (the zshrc prompt warns
+on it, and a Taildrop note goes to `NET_NOTIFY_PEER`), and stops dialing.
+See "Headless SAML" below — a desktop session is NOT required. `vpn cookie`
+shows how long each session lasted; `session.log` (below) says why it ended.
 
 ### 6. Dial wedged on a webview nobody can see
 
 **Symptom:** no `tun0`, `*.nps.edu` DNS fails, and a `gpclient ... connect
-vpn.nps.edu` has been running for hours. Every `vpn` matches the in-flight
-guard and logs "already in flight -- waiting on it", forever. Tail of
+vpn.nps.edu` has been running for hours. Tail of
 `~/.local/state/nps-vpn/last_connect.log`: `browser=embedded`, then
 `Window not raised: Failed to raise window: GlobalProtect Login`.
 
-**Cause:** the cookie expired, so the dial needed SAML. The headless design
-assumes the embedded browser cannot start (`Failed to initialize GTK`) and is
-caught by that log line — but finleydt runs an `Xvfb :99` for Playwright, and
-`DISPLAY` rides through `sudo` on its built-in `env_keep`. gpauth *found* a
-display, opened an auth window nobody can see, and waited. Too headed to fail,
-too headless to finish.
+**Cause:** the session was gone, so the dial needed SAML. finleydt runs an
+`Xvfb` for Playwright and a user session bus, and gpauth finds them even
+with `DISPLAY` unset: it opens an auth window nobody can see and waits. Too
+headed to fail, too headless to finish. One such dial held the cron's flock
+for eight hours (the fd rode along into the `setsid` child) and every tick
+was skipped, including the one that would have reported it.
 
-**Fix (automatic):** the dial now runs under `env -u DISPLAY -u
-WAYLAND_DISPLAY -u XAUTHORITY`, so it fails in seconds on any caller's
-environment, and a dial older than `NET_DIAL_WEDGED_AFTER` (300s; a human
-`--browser remote` round is exempt) is reported wedged instead of waited on —
-it drops the `cookie_expired` marker and stops. Recover with `vpn login`.
-Guard: `net/test_stale_dial.sh`.
+**Fix (automatic):** the dial is ended through its gpauth (which runs as
+you, under the root gpclient) as soon as its log says SAML — inside the same
+tick, not at a threshold — and any dial older than `NET_DIAL_WEDGED_AFTER`
+(300 s; a human `--browser remote` round is exempt) is ended the same way.
+The crontab line runs `flock -n -o`, so the tick's children never hold its
+lock. Recover with `vpn login`. Guard: `net/test_stale_dial.sh`.
 
 ### 7. A name resolves but the connect hangs — subnet outside the split
 
@@ -115,6 +118,29 @@ flags the ones not routed.
 `add`/`del` pair to `net/sudoers.d/nps-vpn`. Both, always: a sudoers glob cannot
 follow a shell variable, and the asserts run under `sudo -n ... 2>/dev/null ||
 true`, so a prefix listed in only the script fails silently and forever.
+
+### 8. Underlay blip ends the session (ESP fallback)
+
+**Symptom:** the WiFi roams or the dongle drops for seconds; `tun0` is gone
+13 s later; the next dial needs SAML. `session.log` reads `ESP detected dead
+peer` → `Failed to connect ESP tunnel; using HTTPS instead` → `Failed to
+reconnect to host vpn.nps.edu` → `POST .../logout.esp` → `openconnect_mainloop
+returned -22`, with `RECONNECT_TIMEOUT: 1200` printed at the top and no
+`sleep Ns, remaining timeout` line anywhere.
+
+**Cause:** with ESP (the default transport) openconnect's fallback to HTTPS
+is ONE direct `gpst_connect()` (gpst.c, `gpst_mainloop`): its first miss
+ends the mainloop, and the client logs the server session out on the way
+down. `--reconnect-timeout` never engages on that path; it governs
+`ssl_reconnect()`, which only an HTTPS tunnel's own loss reaches. finleydt's
+uplink is a USB WiFi dongle on eduroam that roams several times a day, so
+this was the "random cookie expiry".
+
+**Fix (automatic):** the dial carries `--no-dtls` (HTTPS-only tunnel), so a
+blip goes through the retry loop for `NET_RECONNECT_TIMEOUT` seconds on the
+same session. The vectors live in `net/sudoers.d/nps-vpn`; until `~/vpnfix`
+has installed them the cascade dials ESP and `vpn-status` says so on its
+first line. A wired uplink removes the cause outright.
 
 ### Headless SAML (no display on this box)
 
@@ -166,9 +192,28 @@ the release.
 ```
 
 Reconciles VPN + split route + MTU + split DNS unattended (flock-guarded,
-log at `~/.local/state/nps-vpn/autoheal.log`, no root, survives reboot).
-The only event it cannot heal alone is a server-side SAML-cookie expiry —
-that needs the Headless SAML dance above once.
+no root, survives reboot). The only event it cannot heal alone is a
+server-side session end — that needs the Headless SAML dance above once.
+
+A tick never authenticates to anything. With `tun0` up it asserts routes,
+MTU and split DNS and sends ONE small ICMP echo through the tunnel to
+hamming-sub1 (liveness, and the traffic that holds off the gateway's
+180-minute idle timeout). A 2-minute ssh from one address is the shape an
+IDS reports as brute force (NPS RC did, 2026-08), and a raw TCP probe of
+:22 leaves a line at the login node per tick; neither runs on the timer.
+With `tun0` down it dials with the best vector sudoers grants, and a dial
+that leaves no tunnel doubles the wait before the next one (2, 4, 8, 16,
+32, then 60 min; `net/test_dial_backoff.sh`). A human `vpn` dials at once.
+
+Logs, all under `~/.local/state/nps-vpn/`, each self-truncating at 200 KB:
+
+| file | holds |
+|---|---|
+| `autoheal.log` | one line per tick |
+| `last_connect.log` | the last headless dial's output (what the SAML check reads) |
+| `dials.log` | every headless dial's output, under a stamped header |
+| `session.log` | the `vpn login` pane, piped to disk — the reason a live session ended is here |
+| `cookie_lifetime.log` | how long each session lasted |
 
 **Never pause the cron for a login.** It already stands down on its own:
 `_saml_reauth_needed` returns false while a `--browser remote` dial is
@@ -180,11 +225,13 @@ with `nps-vpn.sh install-autoheal`.
 ## One-time install
 
 ```bash
-cd ~/Github/linux-setup
-sudo install -o root -g root -m 0440 net/sudoers.d/nps-vpn /etc/sudoers.d/nps-vpn
-sudo visudo -cf /etc/sudoers.d/nps-vpn            # must print "parsed OK"
-sudo rm -f /etc/sudoers.d/drone-nps-vpn           # remove the old project drop-in
+~/vpnfix        # sudoers (interactive sudo once) + the autoheal crontab; idempotent
 ```
+
+Re-run it whenever `net/sudoers.d/nps-vpn` gains a vector: the script reads
+the installed grants off `sudo -l` and dials the best one it finds, so a
+stale install still dials, without the newer protection. `vpn-status`'s
+first line is the vector in use.
 
 ## Project delegation
 
@@ -205,8 +252,10 @@ which NPS's IDS reported as a brute-force attempt on the account (2026-08).
 ## Quick troubleshooting
 
 ```bash
-vpn-status                 # tun0 MTU + real HPC SSH health
+vpn-status                 # dial vector, tun0 MTU, real HPC SSH health
 vpn-reconnect              # stale session after a network change
+vpn cookie                 # session age + measured lifetimes
+tail ~/.local/state/nps-vpn/session.log   # why the last session ended
 NET_TUN_MTU=1200 vpn       # constrained network: lower the MTU
 bash ~/Github/linux-setup/net/vpn_mtu_test.sh   # empirically re-find the MTU
 ```

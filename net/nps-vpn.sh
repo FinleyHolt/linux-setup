@@ -13,7 +13,8 @@
 #   up        VPN (if needed) + split route + safe MTU + split DNS   [default]
 #   vpn       same as `up`. This is what project repos delegate to for the
 #             VPN step.
-#   status    VPN state + tun0 MTU + real HPC SSH health
+#   status    VPN state + tun0 MTU + the dial vector sudoers grants + a real
+#             HPC ssh (by hand only; nothing on a timer authenticates)
 #   reconnect re-assert route/MTU/DNS (NO logout); --force to drop+re-login
 #   login     interactive re-auth (headless SAML) after SSO-cookie expiry;
 #             prints ONE tailnet URL per round + stamps the cookie mint
@@ -29,24 +30,27 @@
 # failure mode: net/nps-vpn.md.
 #
 # Env overrides:
-#   NET_HPC_HOST      ssh target for the health probe + tunnel keepalive
-#                     (default finley.holt@hamming-sub1.uc.nps.edu)
+#   NET_HPC_HOST      ssh target for `status` (default finley.holt@hamming-sub1.uc.nps.edu)
+#   NET_HPC_IP        the address the liveness ping and on-campus check aim at
 #   NET_HEAL_INTERVAL heal-loop seconds     (default 30)
 #   NET_TUN_MTU       tun0 MTU after connect (default 1280; see nps-vpn.md)
 #   NET_AUTH_RELAY_PORT  fixed port the SAML round URL is published on (18080)
+#   NET_NOTIFY_PEER   tailnet device that gets a Taildrop note when the link
+#                     needs a human (default iphone-13-pro-max; empty = none)
 
 set -u
 
-# The health probe and the tunnel keepalive both aim here, so it must be a host
-# this account really has: a target whose account is gone turns every 2-minute
-# reconcile into a failed SSH auth, and a few of those a minute reads to an IDS
-# as a brute-force attempt against the account (NPS RC alerted on exactly that,
-# 2026-08, when this still pointed at a reclaimed box).
+# The one ssh this script runs is `status`, by hand. Nothing on a timer
+# authenticates to any NPS host: a 2-minute ssh from one address is the shape
+# an IDS reports as brute force (NPS RC alerted on exactly that, 2026-08, when
+# a probe still pointed at a reclaimed box), and even a successful one leaves a
+# line at the login node per tick. The unattended tick's only remote traffic
+# is one ICMP echo through the tunnel (_hpc_reachable).
 NET_HPC_HOST="${NET_HPC_HOST:-finley.holt@hamming-sub1.uc.nps.edu}"
-# The reachability probe and the keepalive ping address the box NUMERICALLY, on
-# purpose: hamming's name resolves only through tun0's NPS DNS, so deriving the
-# address from NET_HPC_HOST would make the off-VPN on-campus check a DNS failure
-# rather than a reachability answer. 172.20.32.70 is hamming-sub1 (ssh hamming-ip).
+# The reachability probe and the on-campus check address the box NUMERICALLY,
+# on purpose: hamming's name resolves only through tun0's NPS DNS, so deriving
+# the address from NET_HPC_HOST would make the off-VPN on-campus check a DNS
+# failure rather than a reachability answer. 172.20.32.70 is hamming-sub1.
 NET_HPC_IP="${NET_HPC_IP:-172.20.32.70}"
 # Split-tunnel prefixes. 172.20.0.0/16 is campus + hamming; 10.0.248.0/24 is the
 # ai.nps.edu DGX GB300 (jensen 10.0.248.9, runai 10.0.248.129) -- its names
@@ -71,14 +75,19 @@ NET_TUN_MTU="${NET_TUN_MTU:-1280}"
 # `login` forwards that socket to this fixed port on the Tailscale address, which
 # both the laptop and the phone already reach -- one tappable link, no ssh -L.
 NET_AUTH_RELAY_PORT="${NET_AUTH_RELAY_PORT:-18080}"
-# GlobalProtect/openconnect silently restores a DROPPED tunnel to the SAME 30-day
-# session (no SAML, no phone MFA) as long as the underlay returns within this
-# window. The default is 300s (5 min); a flaky USB WiFi dongle is often out longer
-# than that, and once openconnect gives up the session is gone -> full interactive
-# SAML + Authenticator push. Widen it so multi-minute dongle outages are ridden
-# out silently -- this is the main lever for "fewer logins". 4 digits (the sudoers
-# glob bounds it to [0-9][0-9][0-9][0-9]); env-overridable.
+# openconnect restores a DROPPED tunnel to the SAME 30-day session (no SAML, no
+# phone MFA) as long as the underlay returns within this window -- but only on
+# the HTTPS-tunnel path (ssl_reconnect's retry loop). With ESP, the default,
+# a dead peer falls back to HTTPS through ONE direct gpst_connect() whose
+# first miss ends the mainloop and logs the session out (gpst.c; measured
+# 2026-09-13: a WiFi roam to "openconnect_mainloop returned -22" in 13 s with
+# this set to 1200). So the dial carries --no-dtls, and this window is what
+# a dongle outage has to outlast. 4 digits (the sudoers glob bounds it to
+# [0-9][0-9][0-9][0-9]); env-overridable.
 NET_RECONNECT_TIMEOUT="${NET_RECONNECT_TIMEOUT:-1200}"
+# The phone, over Taildrop: the one channel this box already has to a device in
+# a pocket. Used only on the transition to "needs a human"; empty disables.
+NET_NOTIFY_PEER="${NET_NOTIFY_PEER-iphone-13-pro-max}"
 # A headless dial that is still "in flight" after this long is WEDGED, not
 # mid-auth: with any display it can reach (an Xvfb for Playwright counts)
 # gpclient opens an embedded SAML webview nobody can see and waits forever.
@@ -140,19 +149,81 @@ _set_tun_mtu() {
 	fi
 }
 
-# Real end-to-end HPC health. A TCP connect to :22 is NOT enough -- an MTU
-# black hole lets TCP connect while the SSH key exchange stalls -- so this runs
-# an actual non-interactive ssh and a hung handshake reads as DOWN.
+# The unattended liveness probe: one small echo through tun0. It is also the
+# only traffic an idle link carries, which is what holds off the gateway's
+# 180-minute idle timeout. Never an ssh from here: the login node keeps a
+# line per connection, a metronome of them is what an IDS reports, and a 14 s
+# ssh read a merely loaded sshd as a dead tunnel 43 times in one day.
+_hpc_reachable() {
+	ping -c1 -W2 -I tun0 "${NET_HPC_IP}" >/dev/null 2>&1
+}
+
+# Real end-to-end ssh, for `status` by hand only: a hung key exchange (path-MTU
+# black hole) reads as DOWN where an echo would pass. Nothing on a timer may
+# call it -- one cold public-key auth every 2 minutes is the brute-force shape.
 _hpc_ssh_ok() {
 	timeout 14 ssh -o BatchMode=yes -o ConnectTimeout=8 -o ControlPath=none \
 		-o StrictHostKeyChecking=accept-new "${NET_HPC_HOST}" true 2>/dev/null
 }
 
+# Whether sudoers grants a vector WITHOUT a password. `sudo -l <command>`
+# cannot say: it answers yes to anything the sudo group may run with a
+# password (a bogus `gpclient --bogus` included), so a cascade probed that
+# way always took its first candidate and a vector sudoers had not been
+# reinstalled for was refused at dial time, silently, every tick. The
+# NOPASSWD rules are read off the listing instead, as the sudoers file
+# spells them (the reconnect timeout as its 4-digit glob).
+_sudo_grants() { # <vector as sudoers spells it>
+	sudo -n -l 2>/dev/null | grep -qF -- "$1"
+}
+
+# The dial argv the installed client and sudoers allow, best first, with any
+# extra args (--browser remote) appended to each candidate. --no-dtls is the
+# one that survives an underlay blip (see NET_RECONNECT_TIMEOUT). --cookie-cache
+# exists from gpclient 2.6; 2.5.x remembers the cookie BY DEFAULT and REJECTS
+# the flag, so probe the INSTALLED CLIENT first, then walk the sudoers vectors
+# so a stale sudoers degrades to a dial that still works instead of one that
+# is refused. One argv word per line.
+_dial_vector() { # [extra args...]
+	local -a base=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
+	local v glob
+	if /usr/bin/gpclient connect --help 2>/dev/null | grep -q -- --cookie-cache; then
+		for v in "--cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT} --no-dtls" \
+			"--cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT}" \
+			"--cookie-cache"; do
+			glob="${v//${NET_RECONNECT_TIMEOUT}/[0-9][0-9][0-9][0-9]}"
+			if _sudo_grants "${base[*]} ${glob}${*:+ $*}"; then
+				# shellcheck disable=SC2086
+				printf '%s\n' "${base[@]}" $v "$@"
+				return 0
+			fi
+		done
+	fi
+	printf '%s\n' "${base[@]}" "$@"
+}
+
+# End a headless dial that cannot finish. gpauth runs as this user under the
+# root gpclient, so it is ours to signal, and gpclient exits on the failed
+# auth. `gpclient disconnect` cannot do this: a dial that never reached the
+# gateway never wrote /var/run/gpclient.lock.
+_abort_dial() { # <gpclient pid>
+	local _i
+	pkill -P "$1" 2>/dev/null || return 0
+	for _i in 1 2 3 4 5; do
+		kill -0 "$1" 2>/dev/null || return 0
+		sleep 1
+	done
+	pkill -KILL -P "$1" 2>/dev/null || true
+}
+
 ensure_vpn() {
-	# Genuinely on-campus only when HPC is reachable AND there is no tunnel.
-	# A lingering-but-dead tun0 (e.g. after switching networks) also makes
-	# HPC:22 "reachable" via its route, which used to mask a stale session.
-	if _hpc_direct && ! _tun0_up; then
+	# Genuinely on-campus only when there is no tunnel AND HPC:22 answers
+	# direct. tun0 first: with the tunnel up the probe would go through it,
+	# and a banner-less TCP close at the login node every 2 minutes is a log
+	# line sshd keeps. Off-campus with tun0 down the SYN dies on the LAN
+	# default and reaches nothing. (A lingering-but-dead tun0 also used to
+	# make HPC:22 "reachable" via its route and mask a stale session.)
+	if ! _tun0_up && _hpc_direct; then
 		_log "VPN: on-campus path (HPC:22 direct) -- VPN not needed."
 		return 0
 	fi
@@ -166,82 +237,84 @@ ensure_vpn() {
 		fi
 		_set_tun_mtu
 		_ensure_split_dns
-		if _hpc_ssh_ok; then
-			_log "VPN: tun0 up, HPC SSH reachable."
+		_dial_ok
+		if _hpc_reachable; then
+			_log "VPN: tun0 up, HPC reachable."
 		else
-			_log "VPN: WARNING tun0 up but HPC SSH not responding -- stale session."
-			_log "     Recover with:  nps-vpn.sh reconnect   (alias: vpn-reconnect)"
+			_log "VPN: WARNING tun0 up but nothing answers through it -- stale session?"
+			_log "     The client tears a dead session down within seconds; if this"
+			_log "     persists:  nps-vpn.sh reconnect   (alias: vpn-reconnect)"
 		fi
 		return 0
 	fi
+	local _dialed=0 _i _p
 	# An earlier connect may still be mid-auth (SAML); never stack a second
-	# gpclient on top of it -- just wait on the one in flight.
-	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
+	# gpclient on top of it -- wait on the one in flight, unless it is wedged.
+	# The ^ anchor is load-bearing: sudo's argv carries the same command, and
+	# so does any shell whose command line merely mentions it.
+	if pgrep -f '^/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
 		local _wedged
 		if _wedged="$(_wedged_dial_pid)"; then
 			_log "VPN: gpclient pid ${_wedged} has been dialing for over"
-			_log "     $((NET_DIAL_WEDGED_AFTER / 60))min -- wedged on a SAML webview nobody can see,"
-			_log "     not mid-auth. Recover with:  vpn login   (on finley-ub-dt)."
+			_log "     $((NET_DIAL_WEDGED_AFTER / 60))min -- wedged on a SAML webview nobody can see."
+			_log "     Ending it. Recover with:  vpn login   (on finley-ub-dt)."
+			_abort_dial "${_wedged}"
 			_record_cookie_expiry
 			return 1
 		fi
 		_log "VPN: a gpclient connect is already in flight -- waiting on it."
 	else
-		# Once the SSO cookie is known-expired, a headless --cookie-cache dial only
-		# jumps to the embedded browser and panics -- it CANNOT recover here. Stop
-		# dialing (no sudo spam every 2 min) and point at the one thing that works.
-		# The marker is cleared by a successful `vpn login` / tun0 coming up.
+		# Once the SSO cookie is known-expired, a headless --cookie-cache dial
+		# only reaches the SAML page -- it CANNOT recover here. Stop dialing
+		# and point at the one thing that works. _dial_ok clears the marker
+		# when tun0 is up again (a `vpn login`, or the client's own reconnect).
 		if [ -f "${_STATE_DIR}/cookie_expired" ]; then
 			_log "VPN: SSO cookie expired -- automated reconnect can't help (NPS needs"
 			_log "     an interactive login). Recover with:  vpn login   (on finley-ub-dt)."
 			return 1
 		fi
+		_dial_due || return 1
 		_log "VPN: bringing up GlobalProtect (vpn.nps.edu)."
-		# --cookie-cache persists the portal auth cookie across sessions, so
-		# reconnects need no SAML until the server expires it. --cookie-cache
-		# exists from gpclient 2.6; 2.5.x remembers the cookie BY DEFAULT and
-		# REJECTS the flag with a usage error — which this branch discards,
-		# so a wrong vector reads as "VPN never comes up". Probe the
-		# INSTALLED CLIENT first (a 2.5.x box goes straight to the bare
-		# command, same cookie behavior), then cascade through the
-		# sudoers-allowed vectors.
-		local -a _connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
-		if /usr/bin/gpclient connect --help 2>/dev/null | grep -q -- --cookie-cache; then
-			_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}")
-			if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
-				_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache)
-				if ! sudo -n -l "${_connect[@]}" >/dev/null 2>&1; then
-					_connect=(/usr/bin/gpclient --fix-openssl connect vpn.nps.edu)
-				fi
-			fi
-		fi
+		local -a _connect
+		mapfile -t _connect < <(_dial_vector)
+		mkdir -p "${_STATE_DIR}" 2>/dev/null || true
+		_archive_dial_log
 		# setsid -> the VPN client lives in its own session, so it survives
 		# this script (and any shell that triggered the heal) exiting.
-		mkdir -p "${_STATE_DIR}" 2>/dev/null || true
-		# env -u DISPLAY: this box runs an Xvfb for Playwright and DISPLAY rides
-		# through sudo on its built-in env_keep, so a cookie-expired dial FOUND a
-		# display, opened an invisible auth window and hung for hours instead of
-		# failing. Denied a display it fails GTK init in seconds, which is what
-		# _saml_reauth_needed was written to catch. `env` precedes `sudo`: the
+		# env -u DISPLAY: this box runs an Xvfb for Playwright and DISPLAY
+		# rides through sudo on its built-in env_keep, so a cookie-expired dial
+		# FOUND a display, opened an invisible auth window and hung for hours.
+		# Denying the display is not sufficient on its own (gpauth found the
+		# session bus regardless, 2026-09-13); the SAML line in the dial's log
+		# is what ends it, in the wait loop below. `env` precedes `sudo`: the
 		# sudoers Cmnd_Alias covers gpclient, not /usr/bin/env.
 		setsid env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY \
 			sudo -n "${_connect[@]}" >"${_CONNECT_LOG}" 2>&1 &
+		_dialed=1
 	fi
-	local _i
 	for _i in $(seq 1 30); do
 		_tun0_up && break
+		# The moment the dial's log says SAML it is asking for a human, and no
+		# amount of waiting finishes it: end it now, not at the wedge
+		# threshold, and not after twenty more dials.
+		if _saml_reauth_needed; then
+			for _p in $(pgrep -f '^/usr/bin/gpclient .*connect vpn\.nps\.edu' 2>/dev/null); do
+				_abort_dial "$_p"
+			done
+			_record_cookie_expiry
+			break
+		fi
 		sleep 1
 	done
 	if ! _tun0_up; then
-		# Record the expiry HERE, not only from the autoheal tick: a paused cron
-		# meant the marker (and the zshrc prompt warning that reads it) went
-		# unwritten for 12 days while every dial failed.
-		_saml_reauth_needed && _record_cookie_expiry
+		[ "${_dialed}" = 1 ] && _dial_failed
 		_log "VPN: WARNING tun0 did not appear."
-		_log "     - sudo prompted? install net/sudoers.d/nps-vpn (one-time; see net/nps-vpn.md)."
-		_log "     - SAML cookie expired on a headless box? run:"
-		_log "         sudo /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote"
-		_log "       then open the printed URL through an ssh -L forward (nps-vpn.md, 'Headless SAML')."
+		if [ -f "${_STATE_DIR}/cookie_expired" ]; then
+			_log "     The SSO session needs a login:  vpn login   (on finley-ub-dt)."
+		else
+			_log "     Portal unreachable, or sudo refused (install net/sudoers.d/nps-vpn)."
+			_log "     Log: ${_CONNECT_LOG}. The next unattended dial backs off; 'vpn' dials now."
+		fi
 		return 1
 	fi
 	sudo -n /usr/bin/ip route del default dev tun0 2>/dev/null || true
@@ -249,10 +322,11 @@ ensure_vpn() {
 	_log "VPN: split tunnel active (${NET_SPLIT_ROUTES[*]} via tun0)."
 	_set_tun_mtu
 	_ensure_split_dns
-	if _hpc_ssh_ok; then
-		_log "VPN: HPC SSH reachable."
+	_dial_ok
+	if _hpc_reachable; then
+		_log "VPN: HPC reachable."
 	else
-		_log "VPN: WARNING connected but HPC SSH still failing. If this is a"
+		_log "VPN: WARNING connected but nothing answers through the tunnel. On a"
 		_log "     constrained network, retry lower:  NET_TUN_MTU=1200 nps-vpn.sh up"
 	fi
 }
@@ -296,7 +370,8 @@ _ensure_split_dns() {
 }
 
 cmd_status() {
-	if _hpc_direct && ! _tun0_up; then
+	echo "dial:       $(_dial_vector | tr '\n' ' ')"
+	if ! _tun0_up && _hpc_direct; then
 		echo "VPN:        not needed (HPC:22 reachable direct)"
 	elif _tun0_up; then
 		echo "VPN:        tun0 UP (mtu $(cat /sys/class/net/tun0/mtu 2>/dev/null)), split route $(_split_route_present &&
@@ -341,8 +416,8 @@ cmd_reconnect() {
 	fi
 	_log "reconnect: re-asserting split route + MTU + DNS (no logout)."
 	ensure_vpn
-	if ! _hpc_ssh_ok; then
-		_log "reconnect: WARNING tun0 up but HPC SSH still failing -- session looks"
+	if ! _hpc_reachable; then
+		_log "reconnect: WARNING tun0 up but nothing answers through it -- session looks"
 		_log "           dead. NPS can't silently reconnect; recover with:"
 		_log "             vpn login                     (full re-login), or"
 		_log "             nps-vpn.sh reconnect --force   (drop first, then re-login)"
@@ -359,19 +434,15 @@ cmd_heal() {
 
 # Unattended self-healing: a user crontab entry reconciles the whole link
 # (VPN + split route + MTU + split DNS) every 2 minutes. flock skips a tick
-# while the previous one is still running; the log self-truncates. No root
+# while the previous one is still running; the logs self-truncate. No root
 # needed; survives reboots and logouts (cron runs without a session).
 _AUTOHEAL_LOG="${HOME}/.local/state/nps-vpn/autoheal.log"
 _AUTOHEAL_TAG="# nps-vpn-autoheal"
 
-# Keep GlobalProtect's inactivity timer from firing by pushing a packet through
-# tun0 each reconcile. Outbound alone counts -- the gateway resets its idle
-# timer on any traffic through the tunnel, reply or not. No-op if tun0 is down.
-# This is the ONLY thing generating tunnel traffic on an otherwise idle link,
-# so an idle VPN now depends on it rather than on a standing forward.
-_link_keepalive() {
-	_tun0_up || return 0
-	ping -c1 -W1 -I tun0 "${NET_HPC_IP}" >/dev/null 2>&1 || true
+# Keep the last 100 KB once a log passes 200 KB.
+_rotate_log() { # <file>
+	[ "$(stat -c%s "$1" 2>/dev/null || echo 0)" -gt 200000 ] || return 0
+	tail -c 100000 "$1" >"$1.tmp" && mv "$1.tmp" "$1"
 }
 
 cmd_autoheal_tick() {
@@ -381,18 +452,9 @@ cmd_autoheal_tick() {
 		ensure_vpn 2>&1 | tr '\n' '|'
 		echo
 	} >>"$_AUTOHEAL_LOG"
-	if [ "$(stat -c%s "$_AUTOHEAL_LOG" 2>/dev/null || echo 0)" -gt 200000 ]; then
-		tail -c 100000 "$_AUTOHEAL_LOG" >"${_AUTOHEAL_LOG}.tmp" &&
-			mv "${_AUTOHEAL_LOG}.tmp" "$_AUTOHEAL_LOG"
-	fi
-	# Detect the one failure autoheal can't fix -- SSO-cookie expiry -- and drop a
-	# marker the shell hook warns on. On recovery clear it + send link keepalive.
-	if ! _tun0_up && ! _hpc_direct && _saml_reauth_needed; then
-		_record_cookie_expiry
-	elif _tun0_up; then
-		rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null || true
-		_link_keepalive
-	fi
+	_rotate_log "$_AUTOHEAL_LOG"
+	_rotate_log "${_STATE_DIR}/dials.log"
+	_rotate_log "${_STATE_DIR}/session.log"
 	return 0
 }
 
@@ -400,7 +462,11 @@ cmd_install_autoheal() {
 	local self
 	self="$(readlink -f "${BASH_SOURCE[0]:-$0}")"
 	mkdir -p "$(dirname "$_AUTOHEAL_LOG")"
-	local line="*/2 * * * * flock -n /tmp/nps-vpn-autoheal.lock ${self} autoheal-tick ${_AUTOHEAL_TAG}"
+	# flock -o closes the lock fd before the tick runs, so the parent flock is
+	# the only holder: a `setsid` dial the tick leaves behind inherited the fd
+	# once, wedged for eight hours, and every tick since was skipped by -n --
+	# the guard for a wedged dial lives inside the tick the lock was blocking.
+	local line="*/2 * * * * flock -n -o /tmp/nps-vpn-autoheal.lock ${self} autoheal-tick ${_AUTOHEAL_TAG}"
 	(
 		crontab -l 2>/dev/null | grep -vF "${_AUTOHEAL_TAG}"
 		echo "$line"
@@ -439,11 +505,61 @@ _wedged_dial_pid() {
 	return 1
 }
 
+# The ^ anchor here too: unanchored, a shell whose command line mentioned a
+# --browser remote dial suppressed this for twenty ticks while every one of
+# them launched SAML at the portal.
 _saml_reauth_needed() {
-	pgrep -f 'gpclient .*--browser remote' >/dev/null 2>&1 && return 1
+	pgrep -f '^/usr/bin/gpclient .*--browser remote' >/dev/null 2>&1 && return 1
 	[ -r "${_CONNECT_LOG}" ] || return 1
 	grep -qiE 'Failed to initialize GTK|SAML auth launch|authentication is required' \
 		"${_CONNECT_LOG}" 2>/dev/null
+}
+
+# Every dial's output, kept: last_connect.log is ONE dial (what
+# _saml_reauth_needed reads); dials.log is all of them, under a header
+# stamped with when that dial ran, so twenty failed dials still say why.
+_archive_dial_log() {
+	[ -s "${_CONNECT_LOG}" ] || return 0
+	{
+		printf '== %s\n' "$(date -Is -r "${_CONNECT_LOG}" 2>/dev/null)"
+		cat "${_CONNECT_LOG}"
+	} >>"${_STATE_DIR}/dials.log" 2>/dev/null || true
+}
+
+# Dial backoff. A dial that leaves no tun0 doubles the wait before the next
+# unattended one (2, 4, 8, 16, 32, then 60 min), whatever the cause: the
+# cookie_expired marker stops the SAML case when the log names it, this stops
+# every case the log does not. Cleared whenever tun0 is up; a human at the
+# keyboard (`vpn`, `vpn-reconnect`) clears it before dialing.
+_dial_due() {
+	local next
+	next="$(cat "${_STATE_DIR}/next_dial" 2>/dev/null)"
+	[ "${next:-0}" -le "$(date +%s)" ] && return 0
+	_log "VPN: dial backed off until $(date -d "@${next}" +%H:%M 2>/dev/null) after" \
+		"$(cat "${_STATE_DIR}/dial_fails" 2>/dev/null) failed dial(s); 'vpn' dials now."
+	return 1
+}
+_dial_failed() {
+	local fails wait
+	fails=$(( $(cat "${_STATE_DIR}/dial_fails" 2>/dev/null || echo 0) + 1 ))
+	if [ "$fails" -ge 6 ]; then wait=3600; else wait=$(( 120 << (fails - 1) )); fi
+	mkdir -p "${_STATE_DIR}" 2>/dev/null || true
+	echo "$fails" >"${_STATE_DIR}/dial_fails"
+	echo $(( $(date +%s) + wait )) >"${_STATE_DIR}/next_dial"
+}
+_dial_ok() {
+	rm -f "${_STATE_DIR}/dial_fails" "${_STATE_DIR}/next_dial" \
+		"${_STATE_DIR}/cookie_expired" 2>/dev/null || true
+}
+
+# One line to the phone. Taildrop is what this box already has; a note that
+# never arrives costs nothing, and the zshrc prompt warning stands regardless.
+_notify() { # <text>
+	[ -n "${NET_NOTIFY_PEER}" ] || return 0
+	command -v tailscale >/dev/null 2>&1 || return 0
+	local f="${_STATE_DIR}/nps-vpn-alert.txt"
+	printf '%s\n%s\n' "$(date -Is)" "$1" >"$f" 2>/dev/null || return 0
+	timeout 20 tailscale file cp "$f" "${NET_NOTIFY_PEER}:" >/dev/null 2>&1 || true
 }
 
 # Stamp the first tick of an expiry episode and, if we know when the cookie was
@@ -453,6 +569,7 @@ _record_cookie_expiry() {
 	[ -f "$exp" ] && return 0
 	mkdir -p "${_STATE_DIR}" 2>/dev/null || true
 	date +%s >"$exp"
+	_notify "NPS VPN down: the SSO session needs a login. On finley-ub-dt:  vpn login"
 	[ -r "${_MINT_FILE}" ] || return 0
 	local mint now life_h
 	mint="$(cat "${_MINT_FILE}" 2>/dev/null)"
@@ -637,7 +754,7 @@ _login_callback() {
 	local i
 	for i in $(seq 1 60); do
 		if _tun0_up; then
-			date +%s >"${_MINT_FILE}"; rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null
+			date +%s >"${_MINT_FILE}"; _dial_ok
 			_log "login: connected."; return 0
 		fi
 		sleep 2
@@ -652,24 +769,29 @@ cmd_login() {
 	if _tun0_up; then _log "login: already connected (tun0 up) -- nothing to do."; return 0; fi
 	command -v tmux >/dev/null 2>&1 || { _log "login: needs tmux -- run this on finley-ub-dt."; return 1; }
 	mkdir -p "${_STATE_DIR}" 2>/dev/null || true
-	# Clear a STUCK previous login attempt so round 2 can bind its port -- but only
-	# disconnect if a gpclient is actually running. A blind disconnect when nothing
-	# is running would log out a server session a reboot might have left alive.
-	if pgrep -f '/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
+	# Clear a STUCK previous attempt so round 2 can bind its port. A headless
+	# dial is ended through its gpauth (disconnect never sees one that did not
+	# reach the gateway); whatever holds the lock file gets the disconnect --
+	# but only when a gpclient is actually running: a blind disconnect when
+	# nothing is running would log out a session a reboot left alive.
+	local _p
+	for _p in $(pgrep -f '^/usr/bin/gpclient .*connect vpn\.nps\.edu' 2>/dev/null); do
+		_abort_dial "$_p"
+	done
+	if pgrep -f '^/usr/bin/gpclient .*connect vpn\.nps\.edu' >/dev/null 2>&1; then
 		sudo -n /usr/bin/gpclient disconnect >/dev/null 2>&1 || true
 	fi
 	tmux kill-session -t "${_GPAUTH_TMUX}" 2>/dev/null || true
 	tmux new-session -d -s "${_GPAUTH_TMUX}" -x 220 -y 50
-	# Prefer the widened reconnect-timeout dial (rides out dongle outages on the same
-	# session). Fall back to the plain dial if the installed sudoers hasn't been
-	# updated for it, so a stale sudoers can never break login -- reinstall
-	# net/sudoers.d/nps-vpn (run ~/vpnfix.sh) to actually get the longer window.
-	local _login_dial="sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout ${NET_RECONNECT_TIMEOUT} --browser remote"
-	if ! sudo -n -l /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout "${NET_RECONNECT_TIMEOUT}" --browser remote >/dev/null 2>&1; then
-		_login_dial="sudo -n /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote"
-	fi
+	# The pane is the live tunnel's only log, and the next login kills the
+	# pane: pipe it to disk so the reason a session ended is still there to
+	# read (that line is how the ESP fallback's one-shot exit was found).
+	printf '== login %s\n' "$(date -Is)" >>"${_STATE_DIR}/session.log"
+	tmux pipe-pane -t "${_GPAUTH_TMUX}" -o "cat >> '${_STATE_DIR}/session.log'"
+	local -a _login
+	mapfile -t _login < <(_dial_vector --browser remote)
 	tmux send-keys -t "${_GPAUTH_TMUX}" \
-		"${_login_dial}" C-m
+		"sudo -n ${_login[*]}" C-m
 	local host
 	host="$(hostname -s 2>/dev/null || hostname)"
 	printf '\n' >&2
@@ -684,10 +806,17 @@ cmd_login() {
 	local i
 	for i in $(seq 1 30); do _tun0_up && break; sleep 1; done
 	if _tun0_up; then
-		date +%s >"${_MINT_FILE}"; rm -f "${_STATE_DIR}/cookie_expired" 2>/dev/null
+		date +%s >"${_MINT_FILE}"; _dial_ok
 		_log "login: CONNECTED. Normalising routes/DNS/MTU..."
 		ensure_vpn >/dev/null 2>&1 || true
 		_log "login: done -- 30-day session active. Verify with: vpn-status"
+		# The jensen ControlMaster dies with the VPN and only an interactive
+		# `ssh jensen` (Entra push) mints another; the phone is in hand right
+		# now. -O check asks the local socket and opens no connection.
+		if ! ssh -O check jensen >/dev/null 2>&1; then
+			_log "login: jensen has no ControlMaster -- run:  ssh jensen   now, while"
+			_log "       you hold the phone; its keepalive re-lays the forwards after."
+		fi
 	else
 		_log "login: callbacks submitted but tun0 didn't appear. Inspect: tmux attach -t ${_GPAUTH_TMUX}"
 		return 1
@@ -717,10 +846,11 @@ if [ "${BASH_SOURCE[0]:-$0}" != "${0}" ]; then
 	return 0 2>/dev/null || true
 fi
 
+# A human at the keyboard dials now; the backoff is for the cron.
 case "${1:-up}" in
-up | vpn) ensure_vpn ;;
+up | vpn) rm -f "${_STATE_DIR}/next_dial" 2>/dev/null; ensure_vpn ;;
 status) cmd_status ;;
-reconnect) cmd_reconnect ;;
+reconnect) rm -f "${_STATE_DIR}/next_dial" 2>/dev/null; cmd_reconnect ;;
 heal) cmd_heal ;;
 autoheal-tick) cmd_autoheal_tick ;;
 install-autoheal) cmd_install_autoheal ;;

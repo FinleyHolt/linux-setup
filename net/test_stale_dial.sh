@@ -55,3 +55,23 @@ sleep 1
 NET_DIAL_WEDGED_AFTER=300
 ! _wedged_dial_pid >/dev/null || fail "a seconds-old dial read as wedged at a 300s threshold"
 echo "PASS: fresh dial (pid ${PID_FRESH}) waits, not wedged, under the default threshold"
+
+# _saml_reauth_needed stands down while a --browser remote login is in flight.
+# Its pgrep must be anchored the same way: a shell merely MENTIONING such a
+# dial suppressed the cookie-expired marker for twenty ticks once, each of
+# them a SAML launch at the portal. Assert on the pattern itself: on a box
+# with a live tunnel the real gpclient (which carries --browser remote) is
+# always matched too, so the predicate cannot be driven end to end here.
+decoy PID_SHELL_HUMAN "/usr/bin/zsh -c echo ${DIAL} --browser remote"
+sleep 1
+PAT="$(grep -oE "pgrep -f '[^']*--browser remote'" "${SRC}" | head -1 | sed "s/^pgrep -f '//; s/'\$//")"
+[ -n "${PAT}" ] || fail "could not find the --browser remote pgrep in ${SRC}"
+MATCHED=" $(pgrep -f "${PAT}" 2>/dev/null | tr '\n' ' ') "
+case "${MATCHED}" in
+*" ${PID_HUMAN} "*) ;;
+*) fail "a real --browser remote dial (pid ${PID_HUMAN}) is not matched by '${PAT}'" ;;
+esac
+case "${MATCHED}" in
+*" ${PID_SHELL_HUMAN} "*) fail "a shell mentioning the dial (pid ${PID_SHELL_HUMAN}) is matched by '${PAT}' (anchor lost)" ;;
+esac
+echo "PASS: the login-in-flight pgrep matches the dial and not a shell that mentions it"
