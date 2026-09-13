@@ -3,6 +3,11 @@
 # vectors only; no general ip/gpclient privilege is granted. The
 # `ip link set tun0 mtu NNNN` entry is the path-MTU black-hole fix (see
 # net/nps-vpn.md); the four [0-9] globs bound it to tun0 and a 4-digit MTU.
+# The --no-dtls vectors are the ones the script prefers: an HTTPS-only tunnel
+# rides out an underlay blip on the same session where ESP's fallback exits
+# on its first miss (net/nps-vpn.md, "Underlay blip"). The script reads this
+# file's grants off `sudo -l` and dials the best one it finds, so an older
+# install of this file still dials -- without that protection.
 #
 # One add/del pair per split-tunnel prefix, matching NET_SPLIT_ROUTES in
 # net/nps-vpn.sh: 172.20.0.0/16 is campus + hamming, 10.0.248.0/24 is the
@@ -26,6 +31,8 @@ Cmnd_Alias NPS_VPN = \
     /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --browser remote, \
     /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9], \
     /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9] --browser remote, \
+    /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9] --no-dtls, \
+    /usr/bin/gpclient --fix-openssl connect vpn.nps.edu --cookie-cache --reconnect-timeout [0-9][0-9][0-9][0-9] --no-dtls --browser remote, \
     /usr/bin/gpclient disconnect, \
     /usr/bin/ip link set tun0 mtu [0-9][0-9][0-9][0-9], \
     /usr/bin/ip route del default dev tun0, \
