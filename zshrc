@@ -82,13 +82,13 @@ claude() {
 # >>> nps vpn command (desktop migration) >>>
 # Mirrors the laptop's `vpn` family. Brings up the NPS GlobalProtect split
 # tunnel (route + MTU + split DNS) via linux-setup/net/nps-vpn.sh. Passwordless
-# sudo for the exact gpclient/ip vectors is granted by
-# /etc/sudoers.d/drone-nps-vpn.
+# sudo for the exact gpclient/ip vectors is granted by /etc/sudoers.d/nps-vpn
+# (installed by ~/vpnfix).
 # It lays no port forwards: a project that needs a service port brings its own
 # per-site tunnel (WORLDSInternal: compute/networking/net_ensure.sh).
-# NOTE: the FIRST GlobalProtect SAML login is GUI-only (use the GlobalProtect
-# app on the desktop once); after that `vpn` reconnects/heals headlessly while
-# GP's auth cookie is valid.
+# A SAML login is headless: `vpn login` prints one tailnet link per round for
+# the phone or the laptop (net/nps-vpn.md, "Headless SAML"); after that `vpn`
+# and the cron autoheal reconnect on the same session without a prompt.
 export _NET_ENSURE="$HOME/Github/linux-setup/net/nps-vpn.sh"
 vpn() {
     case "${1:-}" in
