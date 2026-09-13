@@ -34,15 +34,44 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 
 # >>> Claude Code: resume sessions the phone started >>>
 # A session started from the claude.ai / mobile Code app runs on this box as
-# `claude --print --sdk-url …` and stamps every transcript record
-# entrypoint=sdk-cli. The /resume picker hides sdk entrypoints unless the
-# running process is one itself, so a plain `claude -r` never lists them.
-# Only the resume forms get the env var: a fresh session under it would be
-# stamped sdk-cli too. CLAUDE_CODE_ARTIFACT keeps the Artifact tool, which
-# an sdk entrypoint otherwise drops. A session the app still shows as running
-# has a live writer on its transcript: resume those with --fork-session.
+# `claude --print --sdk-url …` under the `claude rc` daemon and stamps every
+# transcript record entrypoint=sdk-cli. The /resume picker hides sdk
+# entrypoints unless the running process is one itself, so a plain
+# `claude -r` never lists them. Only the resume forms get the env var: a
+# fresh session under it would be stamped sdk-cli too. CLAUDE_CODE_ARTIFACT
+# keeps the Artifact tool, which an sdk entrypoint otherwise drops.
+# A session the app still shows as running has a live worker appending to
+# its transcript, and the interactive resume has no guard against a second
+# writer. The registry (~/.claude/sessions/<pid>.json) says which ones are
+# live: an explicit id that is live gets --fork-session, and the bare picker
+# form lists the live ids first so they are picked by id, not by row.
+_claude_live_phone() {
+    python3 - <<'PY'
+import glob, json, os
+for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):
+    try:
+        d = json.load(open(f)); os.kill(d['pid'], 0)
+    except Exception:
+        continue
+    if d.get('entrypoint') == 'sdk-cli':
+        print(d['sessionId'], d.get('name', ''))
+PY
+}
 claude() {
     if [[ " $* " == *" -r "* || " $* " == *" --resume"* ]]; then
+        local live id
+        live=$(_claude_live_phone)
+        for id in "$@"; do
+            [[ "$id" == ????????-????-????-????-???????????? ]] || continue
+            if [[ "$live" == *"$id"* && " $* " != *" --fork-session "* ]]; then
+                print -u2 "session $id is live under the phone: forking"
+                set -- "$@" --fork-session
+            fi
+        done
+        if [[ -n "$live" && " $* " != *" --fork-session "* ]]; then
+            print -u2 "live under the phone (resume by id to fork, not by row):"
+            print -u2 -- "$live"
+        fi
         CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_ARTIFACT=1 command claude "$@"
     else
         command claude "$@"
