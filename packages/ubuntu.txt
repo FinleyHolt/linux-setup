@@ -1,0 +1,70 @@
+# apt packages (Ubuntu 24.04+, universe and multiverse). One per line.
+# Apps that apt lacks or ships too old come from snap.txt; setup.sh installs
+# Chrome, Tailscale, Zed, and the Nerd Font directly.
+
+# Shell and CLI
+zsh
+git
+gh
+curl
+wget
+7zip
+unrar
+tree
+htop
+iotop
+jq
+ripgrep
+fd-find
+tmux
+mosh
+autossh
+sshfs
+socat
+tcpdump
+iperf3
+manpages
+usbutils
+unzip
+fontconfig
+
+# Development
+build-essential
+cmake
+graphviz
+rustup
+nodejs
+npm
+python3-pip
+shellcheck
+shfmt
+wl-clipboard
+imagemagick
+podman
+
+# Desktop
+snapd
+gnome-tweaks
+gnome-shell-extension-manager
+gnome-browser-connector
+
+# Network and sync
+syncthing
+rclone
+
+# LaTeX
+texlive-latex-extra
+texlive-fonts-recommended
+texlive-bibtex-extra
+texlive-plain-generic
+biber
+
+# Apps
+thunderbird
+libreoffice
+okular
+pdfarranger
+mpv
+vlc
+gstreamer1.0-libav
+hunspell-en-us

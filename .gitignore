@@ -1,0 +1,14 @@
+# Written by lazy.nvim on every update; machine-specific.
+nvim/lazy-lock.json
+nvim/.luarc.json
+
+# Machine-local shell config and secrets never belong here.
+zshrc.local
+.env
+.claude/
+
+# Editor and backup leftovers
+*.swp
+*~
+*.bak-*
+.DS_Store

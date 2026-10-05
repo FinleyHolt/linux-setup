@@ -1,0 +1,8 @@
+# AUR packages, installed with yay (setup.sh bootstraps yay if it is missing).
+google-chrome
+visual-studio-code-bin
+spotify
+drawio-desktop-bin
+zotero
+localsend-bin
+cheat

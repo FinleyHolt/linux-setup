@@ -1,0 +1,13 @@
+# Ubuntu snaps: name, then an optional confinement flag.
+nvim --classic
+ghostty --classic
+yazi --classic
+code --classic
+obsidian --classic
+spotify
+discord
+signal-desktop
+drawio
+zotero-snap
+localsend
+cheat

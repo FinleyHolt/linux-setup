@@ -1,0 +1,72 @@
+# Python Syntax Cheatsheet
+
+# For Loop
+# Iterate over a sequence (list, tuple, string, range)
+for i in range(5):
+    print(i)  # prints 0, 1, 2, 3, 4
+
+for item in ["apple", "banana", "cherry"]:
+    print(item)
+
+for i, value in enumerate(["a", "b", "c"]):
+    print(f"Index {i}: {value}")
+
+# If Statement
+# Conditional execution
+x = 10
+if x > 5:
+    print("x is greater than 5")
+elif x == 5:
+    print("x equals 5")
+else:
+    print("x is less than 5")
+
+# One-line if (ternary)
+result = "even" if x % 2 == 0 else "odd"
+
+# While Loop
+# Repeat while condition is true
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+
+# While with break and continue
+while True:
+    user_input = input("Enter 'quit' to exit: ")
+    if user_input == "quit":
+        break
+    elif user_input == "":
+        continue
+    print(f"You entered: {user_input}")
+
+# Class
+# Define a class with attributes and methods
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def greet(self):
+        return f"Hello, my name is {self.name} and I'm {self.age} years old"
+
+    def birthday(self):
+        self.age += 1
+
+# Create instance and use it
+person = Person("Alice", 30)
+print(person.greet())
+person.birthday()
+
+# Class with inheritance
+class Student(Person):
+    def __init__(self, name, age, student_id):
+        super().__init__(name, age)
+        self.student_id = student_id
+
+    def study(self):
+        return f"{self.name} is studying"
+
+student = Student("Bob", 20, "12345")
+print(student.greet())
+print(student.study())

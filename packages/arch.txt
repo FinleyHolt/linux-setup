@@ -1,0 +1,79 @@
+# pacman packages (official repos). One per line; # starts a comment.
+
+# Shell and CLI
+zsh
+git
+github-cli
+wget
+7zip
+unrar
+tree
+htop
+iotop
+fastfetch
+jq
+ripgrep
+fd
+yazi
+tmux
+mosh
+autossh
+sshfs
+socat
+tcpdump
+iperf3
+man-pages
+usbutils
+
+# Development
+base-devel
+cmake
+graphviz
+rustup
+nodejs
+npm
+python-pip
+shellcheck
+shfmt
+neovim
+wl-clipboard
+imagemagick
+podman
+
+# Desktop
+ghostty
+ttf-jetbrains-mono-nerd
+gnome-tweaks
+extension-manager
+gnome-browser-connector
+
+# Network and sync
+tailscale
+syncthing
+rclone
+
+# LaTeX
+texlive-basic
+texlive-latex
+texlive-latexrecommended
+texlive-latexextra
+texlive-fontsrecommended
+texlive-bibtexextra
+texlive-plaingeneric
+biber
+
+# Apps
+firefox
+discord
+signal-desktop
+obsidian
+zed
+thunderbird
+libreoffice-fresh
+okular
+pdfarranger
+rnote
+mpv
+vlc
+gst-libav
+hunspell-en_us

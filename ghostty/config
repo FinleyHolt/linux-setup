@@ -1,0 +1,75 @@
+# Ghostty: Catppuccin Macchiato, tabs in the titlebar.
+
+###############
+# Appearance  #
+###############
+
+# Built-in Catppuccin theme
+theme = "Catppuccin Macchiato"
+
+# Slight transparency
+background-opacity = 0.93
+
+# Padding
+window-padding-x = 6
+window-padding-y = 4
+window-padding-balance = true
+
+
+###############
+# Window / UI #
+###############
+
+# Ensure Ghostty draws the titlebar so you can drag/tile the window
+window-decoration = auto
+
+# Apply Ghostty’s own colors to the titlebar (not GNOME’s white)
+window-theme = ghostty
+
+# Titlebar background/foreground (Macchiato base and text)
+window-titlebar-background = #24273A
+window-titlebar-foreground = #C6D0F5
+
+# Tabs embedded in the titlebar (no separate tab bar)
+gtk-titlebar-style = tabs
+
+
+###############
+# Fonts       #
+###############
+
+font-family = "JetBrainsMono NF"
+font-size = 12.0
+
+# Boost text contrast against transparent background
+minimum-contrast = 5
+
+
+###############
+# Behavior    #
+###############
+
+# Large scrollback buffer (100MB)
+scrollback-limit = 104857600
+
+# Don’t hide the mouse while typing
+mouse-hide-while-typing = false
+
+# Smart scroll behavior
+scroll-to-bottom = keystroke, no-output
+
+# Keep one process per window
+quit-after-last-window-closed = true
+
+
+###############
+# Shell       #
+###############
+
+command = /usr/bin/zsh
+
+keybind = shift+enter=text:\x1b\r
+keybind = ctrl+shift+t=new_tab
+keybind = ctrl+tab=next_tab
+keybind = ctrl+shift+tab=previous_tab
+keybind = ctrl+shift+w=close_surface
