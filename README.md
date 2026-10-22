@@ -61,6 +61,7 @@ at `cheatsheets/`.
   `mosh-server`, redialing and reattaching whenever the connection dies.
   Leave off SESSION and `tmux-pick` shows a menu of the host's sessions,
   newest first, with each one's title and a live preview of its screen.
+  Ctrl-S in the menu skips tmux and opens a plain ssh shell instead.
 
 **GNOME.** The script installs Blur my Shell, Dash to Dock, Caffeine, Custom
 Hot Corners Extended, and Tiling Assistant from extensions.gnome.org. It then

@@ -1,6 +1,7 @@
 #!/bin/sh
 # sshr HOST [SESSION] -- an ssh session that survives sleep and network changes.
-# Without SESSION, tmux-pick offers a menu of HOST's sessions.
+# Without SESSION, tmux-pick offers a menu of HOST's sessions; Ctrl-S there
+# opens a plain ssh shell instead, with no tmux and no redial.
 #
 # No single TCP connection outlives a long suspend. While the laptop sleeps the
 # far end keeps writing (tmux, Claude Code), nothing ACKs it, and its TCP stack
@@ -17,7 +18,14 @@
 
 host=${1:?usage: sshr HOST [SESSION]}
 session=${2-}
-[ -n "$session" ] || session=$(tmux-pick "$host") || exit 1
+if [ -z "$session" ]; then
+	session=$(tmux-pick "$host")
+	case $? in
+	0) ;;
+	2) exec ssh "$host" ;;	# Ctrl-S in the menu
+	*) exit 1 ;;
+	esac
+fi
 
 while :; do
 	# ControlPath=none: an own connection, not the shared master. A master that

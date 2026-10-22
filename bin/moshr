@@ -1,6 +1,8 @@
 #!/bin/sh
 # moshr HOST [SESSION] -- mosh into HOST and attach tmux SESSION (made if missing).
-# Without SESSION, tmux-pick offers a menu of HOST's sessions.
+# Without SESSION, tmux-pick offers a menu of HOST's sessions; Ctrl-S there
+# opens a plain ssh shell instead, with no tmux (and the terminal's own
+# scrollback, which mosh lacks).
 #
 # mosh rides UDP and resyncs the screen rather than holding a connection open,
 # so a shut lid, a new Wi-Fi network, or a new IP is only a pause: the session
@@ -12,7 +14,14 @@
 
 host=${1:?usage: moshr HOST [SESSION]}
 session=${2-}
-[ -n "$session" ] || session=$(tmux-pick "$host") || exit 1
+if [ -z "$session" ]; then
+	session=$(tmux-pick "$host")
+	case $? in
+	0) ;;
+	2) exec ssh "$host" ;;	# Ctrl-S in the menu
+	*) exit 1 ;;
+	esac
+fi
 
 # A mosh-server whose client vanished (laptop rebooted, tab closed while
 # offline) otherwise waits forever. Reap it after a week of silence: tmux still

@@ -4,7 +4,8 @@
 # Newest activity first, with each pane's title (Claude Code titles it after the
 # conversation) and a live preview of its screen. Type to filter. Enter picks
 # the highlighted session; Ctrl-N makes a new one named after what you typed
-# (so does Enter when nothing matches). Esc cancels with exit 1. With no
+# (so does Enter when nothing matches). Ctrl-S exits 2 instead: the caller
+# opens a plain ssh shell on HOST, no tmux. Esc cancels with exit 1. With no
 # sessions on HOST there is nothing to choose, and it prints "main".
 #
 # moshr and sshr call this when run without a SESSION.
@@ -47,15 +48,16 @@ rows=$(printf '%s\n' "$sessions" | sort -t'|' -k1,1nr | awk -F'|' -v now="$(date
 
 out=$(printf '%s\n' "$rows" | TMUX_PICK_HOST=$host fzf \
 	--delimiter='\t' --with-nth=2 --layout=reverse --tiebreak=index \
-	--print-query --expect=ctrl-n \
+	--print-query --expect=ctrl-n,ctrl-s \
 	--prompt="$host > " \
-	--header='enter: attach   ctrl-n: new session named as typed   esc: cancel' \
+	--header='enter: attach   ctrl-n: new session named as typed   ctrl-s: plain ssh, no tmux   esc: cancel' \
 	--preview="'$0' --preview {1}" --preview-window='down,60%,border-top,follow')
 rc=$?
 [ "$rc" -le 1 ] || exit 1	# 130 is Esc or Ctrl-C
 
 query=$(printf '%s\n' "$out" | sed -n 1p)
 key=$(printf '%s\n' "$out" | sed -n 2p)
+[ "$key" = ctrl-s ] && exit 2
 pick=$(printf '%s\n' "$out" | sed -n 3p | cut -f1)
 if [ "$key" = ctrl-n ] || [ -z "$pick" ]; then
 	pick=$query
