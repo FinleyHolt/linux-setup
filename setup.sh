@@ -3,7 +3,7 @@
 #
 #   ./setup.sh             everything: packages, then dotfiles, then gnome
 #   ./setup.sh packages    install the lists in packages/ plus a few direct installs
-#   ./setup.sh dotfiles    Oh My Zsh, then symlink zshrc, nvim, and ghostty
+#   ./setup.sh dotfiles    Oh My Zsh, then symlink zshrc, nvim, ghostty, and bin/
 #   ./setup.sh gnome       extensions, settings, wallpaper, and dock favorites
 #
 # Safe to re-run. A file that a symlink would replace is first moved to
@@ -163,7 +163,7 @@ link() {
 }
 
 dotfiles() {
-	local custom="$HOME/.oh-my-zsh/custom/plugins" plugin conf zsh_path
+	local custom="$HOME/.oh-my-zsh/custom/plugins" plugin conf zsh_path script
 
 	[ -d "$HOME/.oh-my-zsh" ] ||
 		git clone --depth 1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
@@ -175,6 +175,9 @@ dotfiles() {
 	link zshrc "$HOME/.zshrc"
 	link nvim "$HOME/.config/nvim"
 	link ghostty/config "$HOME/.config/ghostty/config"
+	for script in "$REPO"/bin/*; do
+		link "bin/${script##*/}" "$HOME/.local/bin/${script##*/}"
+	done
 
 	# cheat reads ~/.config/cheat; the Ubuntu snap is confined to its own copy.
 	conf="$HOME/.config/cheat/conf.yml"

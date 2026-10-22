@@ -1,0 +1,38 @@
+#!/bin/sh
+# sshr HOST [SESSION] -- an ssh session that survives sleep and network changes.
+# Without SESSION, tmux-pick offers a menu of HOST's sessions.
+#
+# No single TCP connection outlives a long suspend. While the laptop sleeps the
+# far end keeps writing (tmux, Claude Code), nothing ACKs it, and its TCP stack
+# gives up and closes the connection (~15 min of retransmits on Linux); off the
+# tailnet the laptop also wakes on a new IP, which no TCP connection survives.
+# So don't keep the connection, keep the SESSION: it lives in tmux on the far
+# end, and this loop redials and reattaches whenever the connection dies,
+# however long the lid was shut. Where HOST has mosh-server, moshr is better:
+# it resumes on wake with no redial at all.
+#
+# ssh exits 255 only when the connection fails. Detaching (prefix d) or closing
+# the last tmux window exits 0 and ends the loop; Ctrl-C while it is redialing
+# stops it too.
+
+host=${1:?usage: sshr HOST [SESSION]}
+session=${2-}
+[ -n "$session" ] || session=$(tmux-pick "$host") || exit 1
+
+while :; do
+	# ControlPath=none: an own connection, not the shared master. A master that
+	# died in the sleep would take every session riding it down at once, and a
+	# redial would multiplex straight back onto the corpse.
+	# ServerAlive 15s x 4: after wake, a connection the far end already killed
+	# answers with a RST and fails at once; this budget only covers packets that
+	# vanish (Wi-Fi still associating), and a false drop just costs a redial.
+	ssh -t \
+	    -o ControlPath=none \
+	    -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+	    -o ConnectTimeout=15 \
+	    "$host" "tmux new -A -s '$session'"
+	rc=$?
+	[ "$rc" -ne 255 ] && exit "$rc"
+	printf '\r\n[sshr] lost %s; redialing...\r\n' "$host" >&2
+	sleep 3
+done

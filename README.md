@@ -26,7 +26,7 @@ Each step also runs on its own, and every step is safe to re-run:
 
 ```bash
 ./setup.sh packages   # the lists in packages/, plus a few direct installs
-./setup.sh dotfiles   # Oh My Zsh, then symlinks for zshrc, nvim, ghostty
+./setup.sh dotfiles   # Oh My Zsh, then symlinks for zshrc, nvim, ghostty, bin/
 ./setup.sh gnome      # extensions, settings, wallpaper, dock favorites
 ```
 
@@ -41,7 +41,8 @@ installs micromamba, uv, Claude Code, and a stable Rust toolchain, and
 enables `tailscaled`.
 
 **Dotfiles.** The script symlinks `zshrc` to `~/.zshrc`, `nvim/` to
-`~/.config/nvim`, and `ghostty/config` to `~/.config/ghostty/config`. Any
+`~/.config/nvim`, `ghostty/config` to `~/.config/ghostty/config`, and each
+script in `bin/` into `~/.local/bin`. Any
 file already in one of those places is first moved to
 `<file>.bak-<timestamp>`. It also points [cheat](https://github.com/cheat/cheat)
 at `cheatsheets/`.
@@ -54,6 +55,12 @@ at `cheatsheets/`.
   Catppuccin. Keymaps are in [`cheatsheets/nvim`](cheatsheets/nvim).
 - **Ghostty**: Catppuccin Macchiato, slight transparency, tabs in the
   titlebar, JetBrainsMono Nerd Font.
+- **Remote sessions that survive sleep**: `moshr HOST [SESSION]` moshes in
+  and attaches a tmux session, so a shut lid or a new network is only a pause.
+  `sshr HOST [SESSION]` does the same over plain ssh for hosts without
+  `mosh-server`, redialing and reattaching whenever the connection dies.
+  Leave off SESSION and `tmux-pick` shows a menu of the host's sessions,
+  newest first, with each one's title and a live preview of its screen.
 
 **GNOME.** The script installs Blur my Shell, Dash to Dock, Caffeine, Custom
 Hot Corners Extended, and Tiling Assistant from extensions.gnome.org. It then

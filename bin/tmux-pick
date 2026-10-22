@@ -1,0 +1,62 @@
+#!/bin/sh
+# tmux-pick HOST -- choose a tmux session on HOST from a menu; print its name.
+#
+# Newest activity first, with each pane's title (Claude Code titles it after the
+# conversation) and a live preview of its screen. Type to filter. Enter picks
+# the highlighted session; Ctrl-N makes a new one named after what you typed
+# (so does Enter when nothing matches). Esc cancels with exit 1. With no
+# sessions on HOST there is nothing to choose, and it prints "main".
+#
+# moshr and sshr call this when run without a SESSION.
+
+# fzf re-runs this script to draw the preview of the highlighted session.
+if [ "${1-}" = --preview ]; then
+	# -u: ssh's command shell runs in the POSIX locale, where tmux would print
+	# every non-ASCII character as "_". The awk drops the blank rows below the
+	# last line of output, so the preview's follow mode lands on real content.
+	ssh -o BatchMode=yes "$TMUX_PICK_HOST" "tmux -u capture-pane -ep -t '$2:'" 2>/dev/null |
+		awk 'NF { last = NR } { line[NR] = $0 } END { for (i = 1; i <= last; i++) print line[i] }'
+	exit 0
+fi
+
+host=${1:?usage: tmux-pick HOST}
+
+# "|"-separated because tmux prints a tab as "_". The title goes last since it
+# is the only field that can itself hold a "|".
+sessions=$(ssh "$host" "tmux -u ls -F '#{session_activity}|#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_command}|#{host_short}|#{pane_title}'" 2>/dev/null)
+[ $? -eq 255 ] && { echo "tmux-pick: cannot reach $host" >&2; exit 1; }
+[ -n "$sessions" ] || { echo main; exit 0; }
+
+rows=$(printf '%s\n' "$sessions" | sort -t'|' -k1,1nr | awk -F'|' -v now="$(date +%s)" '
+	function ago(t) {
+		t = now - t
+		if (t < 60) return "now"
+		if (t < 3600) return int(t / 60) "m ago"
+		if (t < 86400) return int(t / 3600) "h ago"
+		return int(t / 86400) "d ago"
+	}
+	{
+		title = $7
+		for (i = 8; i <= NF; i++) title = title "|" $i
+		if (title == $6) title = ""	# untitled panes show the hostname
+		extra = ($3 > 1 ? "  [" $3 " windows]" : "") ($4 > 0 ? "  (attached)" : "")
+		printf "%s\t%-14s %-7s %-8s %s%s\n", $2, $2, ago($1), $5, title, extra
+	}')
+
+out=$(printf '%s\n' "$rows" | TMUX_PICK_HOST=$host fzf \
+	--delimiter='\t' --with-nth=2 --layout=reverse --tiebreak=index \
+	--print-query --expect=ctrl-n \
+	--prompt="$host > " \
+	--header='enter: attach   ctrl-n: new session named as typed   esc: cancel' \
+	--preview="'$0' --preview {1}" --preview-window='down,60%,border-top,follow')
+rc=$?
+[ "$rc" -le 1 ] || exit 1	# 130 is Esc or Ctrl-C
+
+query=$(printf '%s\n' "$out" | sed -n 1p)
+key=$(printf '%s\n' "$out" | sed -n 2p)
+pick=$(printf '%s\n' "$out" | sed -n 3p | cut -f1)
+if [ "$key" = ctrl-n ] || [ -z "$pick" ]; then
+	pick=$query
+fi
+[ -n "$pick" ] || exit 1
+printf '%s\n' "$pick"
