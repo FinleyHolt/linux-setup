@@ -14,6 +14,15 @@ source "$ZSH/oh-my-zsh.sh"
 
 PROMPT='%n %~ %# '
 
+# moshr and sshr (bin/) take an ssh host first, so complete them like ssh.
+compdef moshr=ssh sshr=ssh
+
+# A bare `ssh HOST` runs moshr: the session menu, then a session that survives
+# sleep. With a command or flags it stays plain ssh, and scripts never see this.
+ssh() {
+    if [ $# -eq 1 ] && [[ $1 != -* ]]; then moshr "$1"; else command ssh "$@"; fi
+}
+
 # micromamba, which setup.sh puts in ~/.local/bin.
 if [ -x "$HOME/.local/bin/micromamba" ]; then
     export MAMBA_ROOT_PREFIX="$HOME/micromamba"
