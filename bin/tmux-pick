@@ -22,8 +22,10 @@ fi
 host=${1:?usage: tmux-pick HOST}
 
 # "|"-separated because tmux prints a tab as "_". The title goes last since it
-# is the only field that can itself hold a "|".
-sessions=$(ssh "$host" "tmux -u ls -F '#{session_activity}|#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_command}|#{host_short}|#{pane_title}'" 2>/dev/null)
+# is the only field that can itself hold a "|". Only tmux's stderr is dropped
+# ("no server running" when HOST has no sessions); ssh's own stays on the
+# terminal, since an MFA login prints its approval number there.
+sessions=$(ssh "$host" "tmux -u ls -F '#{session_activity}|#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_command}|#{host_short}|#{pane_title}' 2>/dev/null")
 [ $? -eq 255 ] && { echo "tmux-pick: cannot reach $host" >&2; exit 1; }
 [ -n "$sessions" ] || { echo main; exit 0; }
 

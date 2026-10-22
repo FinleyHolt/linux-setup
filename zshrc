@@ -17,10 +17,13 @@ PROMPT='%n %~ %# '
 # moshr and sshr (bin/) take an ssh host first, so complete them like ssh.
 compdef moshr=ssh sshr=ssh
 
-# A bare `ssh HOST` runs moshr: the session menu, then a session that survives
-# sleep. With a command or flags it stays plain ssh, and scripts never see this.
+# A bare `ssh HOST` runs moshr when HOST is in MOSHR_HOSTS: the session menu,
+# then a session that survives sleep. Set the array in ~/.config/zsh/*.zsh,
+# listing only hosts with mosh-server and tmux; anything else (an MFA-gated
+# login, a box without mosh-server) stays plain ssh, as does any ssh with a
+# command or flags. Scripts never see this.
 ssh() {
-    if [ $# -eq 1 ] && [[ $1 != -* ]]; then moshr "$1"; else command ssh "$@"; fi
+    if [ $# -eq 1 ] && (( ${MOSHR_HOSTS[(Ie)$1]:-0} )); then moshr "$1"; else command ssh "$@"; fi
 }
 
 # micromamba, which setup.sh puts in ~/.local/bin.
