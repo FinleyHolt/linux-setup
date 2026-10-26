@@ -15,6 +15,24 @@ vim.opt.wrap = true            -- Enable line wrapping
 vim.opt.linebreak = true       -- Wrap at word boundaries, not mid-word
 vim.opt.autoread = true        -- Auto-reload files changed outside Neovim
 vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
+vim.opt.scrolloff = 8          -- Keep 8 lines below the cursor (room for the completion menu)
+
+-- scrolloff stops at the end of the file; scroll past it so the last lines keep
+-- the same room below and the completion menu still opens downward there.
+vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+  callback = function()
+    if vim.bo.buftype ~= "" or vim.fn.line("w$") ~= vim.fn.line("$") then return end
+    local so = vim.o.scrolloff
+    local win_height = vim.api.nvim_win_get_height(0)
+    if win_height <= 2 * so then return end
+    local room = win_height - vim.fn.winline()
+    if room < so then
+      local view = vim.fn.winsaveview()
+      view.topline = math.min(view.topline + so - room, view.lnum)
+      vim.fn.winrestview(view)
+    end
+  end,
+})
 
 -- Disable unused providers (suppress warnings in :checkhealth)
 vim.g.loaded_perl_provider = 0

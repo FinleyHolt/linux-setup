@@ -28,6 +28,14 @@ return {
 
     vim.cmd("highlight LineNr ctermbg=none guibg=none")
 
+    -- Completion menu: no fill, so Ghostty's transparency shows through like the
+    -- editor; a rounded border marks the edge. The selected row keeps its highlight.
+    local p = require("catppuccin.palettes").get_palette()
+    vim.api.nvim_set_hl(0, "BlinkCmpMenu", { fg = p.text, bg = "NONE" })
+    vim.api.nvim_set_hl(0, "BlinkCmpMenuBorder", { fg = p.overlay0, bg = "NONE" })
+    vim.api.nvim_set_hl(0, "BlinkCmpDoc", { fg = p.text, bg = "NONE" })
+    vim.api.nvim_set_hl(0, "BlinkCmpDocBorder", { fg = p.overlay0, bg = "NONE" })
+
   end
 
 }
