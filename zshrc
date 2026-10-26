@@ -21,9 +21,14 @@ compdef moshr=ssh sshr=ssh
 # then a session that survives sleep. Set the array in ~/.config/zsh/*.zsh,
 # listing only hosts with mosh-server and tmux; anything else (an MFA-gated
 # login, a box without mosh-server) stays plain ssh, as does any ssh with a
-# command or flags. Scripts never see this.
+# command or flags. Scripts never see this. MOSHR_ALIASES (an associative
+# array, set there too) sends a bare `ssh NAME` to `moshr TARGET` instead, for
+# a NAME whose own ~/.ssh/config entry means something else (another account);
+# `command ssh NAME` still reaches that entry.
 ssh() {
-    if [ $# -eq 1 ] && (( ${MOSHR_HOSTS[(Ie)$1]:-0} )); then moshr "$1"; else command ssh "$@"; fi
+    if [ $# -eq 1 ] && (( ${+MOSHR_ALIASES[$1]} )); then moshr "${MOSHR_ALIASES[$1]}"
+    elif [ $# -eq 1 ] && (( ${MOSHR_HOSTS[(Ie)$1]:-0} )); then moshr "$1"
+    else command ssh "$@"; fi
 }
 
 # micromamba, which setup.sh puts in ~/.local/bin.
