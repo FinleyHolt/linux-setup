@@ -3,7 +3,7 @@
 #
 #   ./setup.sh             everything: packages, then dotfiles, then gnome
 #   ./setup.sh packages    install the lists in packages/ plus a few direct installs
-#   ./setup.sh dotfiles    Oh My Zsh, then symlink zshrc, nvim, ghostty, and bin/
+#   ./setup.sh dotfiles    Oh My Zsh, then symlink zshrc, nvim, ghostty, tmux, and bin/
 #   ./setup.sh gnome       extensions, settings, wallpaper, and dock favorites
 #
 # Safe to re-run. A file that a symlink would replace is first moved to
@@ -175,6 +175,7 @@ dotfiles() {
 	link zshrc "$HOME/.zshrc"
 	link nvim "$HOME/.config/nvim"
 	link ghostty/config "$HOME/.config/ghostty/config"
+	link tmux/tmux.conf "$HOME/.config/tmux/tmux.conf"
 	for script in "$REPO"/bin/*; do
 		link "bin/${script##*/}" "$HOME/.local/bin/${script##*/}"
 	done
