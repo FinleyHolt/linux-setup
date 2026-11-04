@@ -8,7 +8,7 @@
 theme = "Catppuccin Macchiato"
 
 # Slight transparency
-background-opacity = 0.88
+background-opacity = 0.93
 
 # Padding
 window-padding-x = 6
