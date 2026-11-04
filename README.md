@@ -26,7 +26,7 @@ Each step also runs on its own, and every step is safe to re-run:
 
 ```bash
 ./setup.sh packages   # the lists in packages/, plus a few direct installs
-./setup.sh dotfiles   # Oh My Zsh, then symlinks for zshrc, nvim, ghostty, bin/
+./setup.sh dotfiles   # Oh My Zsh, then symlinks for zshrc, nvim, ghostty, zed, bin/
 ./setup.sh gnome      # extensions, settings, wallpaper, dock favorites
 ```
 
@@ -41,7 +41,8 @@ installs micromamba, uv, Claude Code, and a stable Rust toolchain, and
 enables `tailscaled`.
 
 **Dotfiles.** The script symlinks `zshrc` to `~/.zshrc`, `nvim/` to
-`~/.config/nvim`, `ghostty/config` to `~/.config/ghostty/config`, and each
+`~/.config/nvim`, `ghostty/config` to `~/.config/ghostty/config`, `zed/` to
+`~/.config/zed`, and each
 script in `bin/` into `~/.local/bin`. Any
 file already in one of those places is first moved to
 `<file>.bak-<timestamp>`. It also points [cheat](https://github.com/cheat/cheat)
@@ -55,6 +56,11 @@ at `cheatsheets/`.
   Catppuccin. Keymaps are in [`cheatsheets/nvim`](cheatsheets/nvim).
 - **Ghostty**: Catppuccin Macchiato, slight transparency, tabs in the
   titlebar, JetBrainsMono Nerd Font.
+- **Zed**: styled after Neovim in Ghostty: Catppuccin Macchiato at Ghostty's
+  opacity, JetBrainsMono NF, Vim mode, relative line numbers, the file panel on
+  the left with its button in the status bar, and Neovim's `Ctrl-P`, `Ctrl-F`,
+  `Ctrl-L`, and `Ctrl-\` keys. The Catppuccin theme and icons install on first
+  launch.
 - **Remote sessions that survive sleep**: `moshr HOST [SESSION]` moshes in
   and attaches a tmux session, so a shut lid or a new network is only a pause.
   `sshr HOST [SESSION]` does the same over plain ssh for hosts without

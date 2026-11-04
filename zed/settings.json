@@ -1,0 +1,84 @@
+// Zed, made to look like Neovim in Ghostty: Catppuccin Macchiato at Ghostty's
+// 0.93 opacity, JetBrainsMono NF, Vim mode, the file panel on the left like
+// Neo-tree. Linked to ~/.config/zed by setup.sh; changes made in Zed's settings
+// UI land here too.
+{
+  // --- Look: Ghostty's theme and font ---
+  "theme": {
+    "mode": "dark",
+    "light": "Catppuccin Latte",
+    "dark": "Catppuccin Macchiato",
+  },
+  "icon_theme": {
+    "mode": "dark",
+    "light": "Catppuccin Latte",
+    "dark": "Catppuccin Macchiato",
+  },
+  "auto_install_extensions": {
+    "catppuccin": true,
+    "catppuccin-icons": true,
+  },
+  "buffer_font_family": "JetBrainsMono NF",
+  "buffer_font_size": 16, // Ghostty's 12 pt in Zed's pixels; Ctrl-= and Ctrl-- adjust it
+  "buffer_line_height": "standard",
+  "ui_font_family": "JetBrainsMono NF",
+  "ui_font_size": 16,
+  "theme_overrides": {
+    "Catppuccin Macchiato": {
+      // Ghostty's background-opacity 0.93 (ed) over the Macchiato base. The editor
+      // and gutter draw no fill of their own, as Neovim leaves Normal unfilled.
+      "background.appearance": "transparent",
+      "background": "#24273aed",
+      "editor.background": "#00000000",
+      "editor.gutter.background": "#00000000",
+      "toolbar.background": "#00000000",
+      // Ghostty's titlebar: solid Macchiato base with the tabs in it.
+      "title_bar.background": "#24273aff",
+      "title_bar.inactive_background": "#24273aff",
+      "tab_bar.background": "#24273aff",
+      "tab.active_background": "#24273aff",
+      "tab.inactive_background": "#1e2030ff",
+    },
+  },
+
+  // --- Editor: what Neovim shows ---
+  "vim_mode": true,
+  "relative_line_numbers": "enabled", // statuscol: relative, absolute on the cursor line
+  "vertical_scroll_margin": 8, // scrolloff = 8
+  "soft_wrap": "editor_width", // wrap + linebreak
+  "cursor_blink": false,
+  "current_line_highlight": "none",
+  "minimap": { "show": "never" },
+  "scrollbar": { "show": "never" },
+  "gutter": {
+    "folds": false,
+    "bookmarks": false,
+    "min_line_number_digits": 3,
+  },
+  "toolbar": {
+    "breadcrumbs": false,
+    "quick_actions": false,
+    "selections_menu": false,
+  },
+  "which_key": { "enabled": true, "delay_ms": 300 },
+
+  // --- Window: less chrome; the file panel on the left, its button in the status bar ---
+  "title_bar": {
+    "show_onboarding_banner": false,
+    "show_user_picture": false,
+    "show_sign_in": false,
+  },
+  "tab_bar": { "show_nav_history_buttons": false },
+  "tabs": { "file_icons": true, "git_status": true },
+  "project_panel": {
+    "dock": "left",
+    "button": true,
+    "entry_spacing": "standard",
+  },
+
+  // --- Kept from the earlier config ---
+  "base_keymap": "VSCode",
+  "session": { "trust_all_worktrees": true },
+  "file_types": { "clojure": ["*.kif"] },
+  "agent_servers": { "claude-acp": { "type": "registry" } },
+}

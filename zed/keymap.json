@@ -1,0 +1,25 @@
+// Neovim's keys in Zed (nvim/init.lua, toggleterm): Ctrl-P the file panel like
+// Neo-tree, Ctrl-F find files like Telescope, Ctrl-L search the project like
+// live grep, Ctrl-\ the terminal.
+[
+  {
+    "context": "Editor && vim_mode == normal",
+    "bindings": {
+      "ctrl-p": "project_panel::ToggleFocus",
+      "ctrl-f": "file_finder::Toggle",
+      "ctrl-l": "pane::DeploySearch",
+    },
+  },
+  {
+    "context": "ProjectPanel",
+    "bindings": {
+      "ctrl-p": "workspace::ToggleLeftDock",
+    },
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "ctrl-\\": "terminal_panel::Toggle",
+    },
+  },
+]
