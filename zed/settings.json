@@ -76,9 +76,37 @@
     "entry_spacing": "standard",
   },
 
+  // --- Git: hunks in the gutter (like gitsigns), blame on the cursor line, and the
+  // git panel beside the files on the left; keys in keymap.json ---
+  "git_panel": {
+    "dock": "left",
+    "file_icons": true,
+  },
+
+  // --- Terminal: Ghostty's keys are in keymap.json; scrollback at Zed's maximum ---
+  "terminal": {
+    "max_scroll_history_lines": 100000,
+  },
+
+  // --- Remote: the Thor as finley (`ssh spot-asl`). Its terminals, git, and
+  // language servers run there. Open one with ctrl-r (recent projects) or
+  // "projects: open remote" from the command palette. No hamming entry: Zed's
+  // server and language servers would run on the shared login node. ---
+  "ssh_connections": [
+    {
+      "host": "spot-asl",
+      "nickname": "Thor",
+      "projects": [
+        { "paths": ["/home/finley/Github/MAPSInternal"] },
+        { "paths": ["/home/finley/Github/nasa-uli"] },
+        { "paths": ["/home/finley/Github/WORLDS"] },
+        { "paths": ["/home/finley/Github/worldkit"] },
+      ],
+    },
+  ],
+
   // --- Kept from the earlier config ---
   "base_keymap": "VSCode",
   "session": { "trust_all_worktrees": true },
-  "file_types": { "clojure": ["*.kif"] },
   "agent_servers": { "claude-acp": { "type": "registry" } },
 }

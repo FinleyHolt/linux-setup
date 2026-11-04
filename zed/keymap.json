@@ -1,6 +1,13 @@
-// Neovim's keys in Zed (nvim/init.lua, toggleterm): Ctrl-P the file panel like
-// Neo-tree, Ctrl-F find files like Telescope, Ctrl-L search the project like
-// live grep, Ctrl-\ the terminal.
+// Neovim's and Ghostty's keys in Zed.
+//   Neovim (nvim/init.lua, toggleterm): Ctrl-P the file panel like Neo-tree,
+//   Ctrl-F find files like Telescope, Ctrl-L search the project like live grep,
+//   Ctrl-\ the terminal.
+//   gitsigns (nvim/lua/plugins/gitsigns.lua): ]h and [h between hunks; Space g
+//   then s stage, r reset, p preview, b blame, d diff.
+//   Ghostty (its defaults and ghostty/config) in the terminal: Ctrl-Shift-T new
+//   tab, Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-O split right,
+//   Ctrl-Shift-E split down, Ctrl-Alt-arrows between splits, Ctrl-Shift-W close,
+//   Shift-Enter a newline (for Claude Code).
 [
   {
     "context": "Editor && vim_mode == normal",
@@ -8,6 +15,20 @@
       "ctrl-p": "project_panel::ToggleFocus",
       "ctrl-f": "file_finder::Toggle",
       "ctrl-l": "pane::DeploySearch",
+      "] h": "editor::GoToHunk",
+      "[ h": "editor::GoToPreviousHunk",
+      "space g s": "git::ToggleStaged",
+      "space g r": "git::Restore",
+      "space g p": "editor::ToggleSelectedDiffHunks",
+      "space g b": "editor::BlameHover",
+      "space g d": "git::Diff",
+    },
+  },
+  {
+    // Zed's Editor context binds Ctrl-\ to split right; this wins over it
+    "context": "Editor",
+    "bindings": {
+      "ctrl-\\": "terminal_panel::Toggle",
     },
   },
   {
@@ -20,6 +41,21 @@
     "context": "Workspace",
     "bindings": {
       "ctrl-\\": "terminal_panel::Toggle",
+    },
+  },
+  {
+    "context": "Terminal",
+    "bindings": {
+      "shift-enter": ["terminal::SendText", "\u001b\r"],
+      "ctrl-shift-t": "workspace::NewTerminal",
+      "ctrl-tab": "pane::ActivateNextItem",
+      "ctrl-shift-tab": "pane::ActivatePreviousItem",
+      "ctrl-shift-o": "pane::SplitRight",
+      "ctrl-shift-e": "pane::SplitDown",
+      "ctrl-alt-left": "workspace::ActivatePaneLeft",
+      "ctrl-alt-right": "workspace::ActivatePaneRight",
+      "ctrl-alt-up": "workspace::ActivatePaneUp",
+      "ctrl-alt-down": "workspace::ActivatePaneDown",
     },
   },
 ]
