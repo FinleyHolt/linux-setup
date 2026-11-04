@@ -68,3 +68,7 @@ vim.keymap.set('n', '<C-f>', builtin.find_files, {})
 vim.keymap.set('n', '<C-l>', builtin.live_grep, {})
 vim.keymap.set('n', '<C-p>', ':Neotree filesystem reveal left<CR>', {})
 vim.keymap.set('t', '<C-]>', [[<C-\><C-n>]], { desc = "Exit terminal mode" })
+
+-- Right-click menu: open or close the file panel, first item
+vim.cmd([[anoremenu 1.1 PopUp.Toggle\ File\ Tree <Cmd>lua require("filetree").toggle()<CR>]])
+vim.cmd([[anoremenu 1.2 PopUp.-0- <Nop>]])
