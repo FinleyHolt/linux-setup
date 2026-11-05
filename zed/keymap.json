@@ -5,10 +5,11 @@
 //   gitsigns (nvim/lua/plugins/gitsigns.lua): ]h and [h between hunks; Space g
 //   then s stage, r reset, p preview, b blame, d diff.
 //   Ghostty (its defaults and ghostty/config): Ctrl-Shift-T opens a terminal as
-//   a tab beside the files, from anywhere; Ctrl-Alt-arrows move between splits,
-//   files or terminals. In a terminal: Ctrl-Tab and Ctrl-Shift-Tab between tabs,
-//   Ctrl-Shift-O split right, Ctrl-Shift-E split down, Ctrl-Shift-W close,
-//   Shift-Enter a newline (for Claude Code).
+//   a tab beside the files, from anywhere; Ctrl-Shift-O and Ctrl-Shift-E open a
+//   terminal in a new split to the right or below, from a file or a terminal;
+//   Ctrl-Alt-arrows move between splits, files or terminals. In a terminal:
+//   Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-W close, Shift-Enter a
+//   newline (for Claude Code).
 [
   {
     "context": "Editor && vim_mode == normal",
@@ -34,6 +35,17 @@
     "context": "Editor",
     "bindings": {
       "ctrl-\\": "terminal_panel::Toggle",
+    },
+  },
+  {
+    // From a file, Ghostty's split keys open a terminal in the new split. The
+    // split comes first, empty, because the terminal starts asynchronously and
+    // lands in whichever pane is active. Replaces Zed's outline (Ctrl-Shift-O)
+    // and reveal-in-file-panel (Ctrl-Shift-E) here.
+    "context": "Editor && mode == full",
+    "bindings": {
+      "ctrl-shift-o": ["action::Sequence", [["pane::SplitRight", { "mode": "EmptyPane" }], "workspace::NewCenterTerminal"]],
+      "ctrl-shift-e": ["action::Sequence", [["pane::SplitDown", { "mode": "EmptyPane" }], "workspace::NewCenterTerminal"]],
     },
   },
   {
