@@ -22,7 +22,7 @@
   "buffer_font_size": 16, // Ghostty's 12 pt in Zed's pixels; Ctrl-= and Ctrl-- adjust it
   "buffer_line_height": "standard",
   "ui_font_family": "JetBrainsMono NF",
-  "ui_font_size": 16,
+  "ui_font_size": 20, // panels, tabs, icons, and menus scale with this
   "theme_overrides": {
     "Catppuccin Macchiato": {
       // Ghostty's background-opacity 0.93 (ed) over the Macchiato base. The editor
