@@ -4,9 +4,10 @@
 //   Ctrl-\ the terminal.
 //   gitsigns (nvim/lua/plugins/gitsigns.lua): ]h and [h between hunks; Space g
 //   then s stage, r reset, p preview, b blame, d diff.
-//   Ghostty (its defaults and ghostty/config) in the terminal: Ctrl-Shift-T new
-//   tab, Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-O split right,
-//   Ctrl-Shift-E split down, Ctrl-Alt-arrows between splits, Ctrl-Shift-W close,
+//   Ghostty (its defaults and ghostty/config): Ctrl-Shift-T opens a terminal as
+//   a tab beside the files, from anywhere; Ctrl-Alt-arrows move between splits,
+//   files or terminals. In a terminal: Ctrl-Tab and Ctrl-Shift-Tab between tabs,
+//   Ctrl-Shift-O split right, Ctrl-Shift-E split down, Ctrl-Shift-W close,
 //   Shift-Enter a newline (for Claude Code).
 [
   {
@@ -22,6 +23,10 @@
       "space g p": "editor::ToggleSelectedDiffHunks",
       "space g b": "editor::BlameHover",
       "space g d": "git::Diff",
+      "ctrl-alt-left": "workspace::ActivatePaneLeft",
+      "ctrl-alt-right": "workspace::ActivatePaneRight",
+      "ctrl-alt-up": "workspace::ActivatePaneUp",
+      "ctrl-alt-down": "workspace::ActivatePaneDown",
     },
   },
   {
@@ -41,13 +46,18 @@
     "context": "Workspace",
     "bindings": {
       "ctrl-\\": "terminal_panel::Toggle",
+      "ctrl-shift-t": "workspace::NewCenterTerminal",
+      "ctrl-alt-left": "workspace::ActivatePaneLeft",
+      "ctrl-alt-right": "workspace::ActivatePaneRight",
+      "ctrl-alt-up": "workspace::ActivatePaneUp",
+      "ctrl-alt-down": "workspace::ActivatePaneDown",
     },
   },
   {
     "context": "Terminal",
     "bindings": {
       "shift-enter": ["terminal::SendText", "\u001b\r"],
-      "ctrl-shift-t": "workspace::NewTerminal",
+      "ctrl-shift-t": "workspace::NewCenterTerminal",
       "ctrl-tab": "pane::ActivateNextItem",
       "ctrl-shift-tab": "pane::ActivatePreviousItem",
       "ctrl-shift-o": "pane::SplitRight",
