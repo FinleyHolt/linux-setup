@@ -263,6 +263,21 @@ set_favorites() {
 	)]"
 }
 
+# Zed never answers GNOME's startup notification, so GNOME keeps a busy cursor
+# up after the window is open, until it gives up. A user copy of the launcher
+# with StartupNotify=false takes precedence over the packaged one.
+zed_launcher() {
+	local src dest
+	for src in /usr/share/applications/dev.zed.Zed.desktop "$HOME/.local/share/applications/zed.desktop"; do
+		[ -f "$src" ] || continue
+		dest="$HOME/.local/share/applications/${src##*/}"
+		mkdir -p "${dest%/*}"
+		sed 's/^StartupNotify=true$/StartupNotify=false/' "$src" >"$dest.tmp" && mv "$dest.tmp" "$dest"
+		step "Zed launcher without startup notification"
+		return 0
+	done
+}
+
 gnome() {
 	local shell_major uuid url tmp wallpaper
 	have gnome-shell || die "GNOME Shell not found; the gnome step needs a GNOME desktop"
@@ -284,6 +299,7 @@ gnome() {
 
 	step "GNOME settings"
 	dconf load / <"$REPO/gnome/settings.ini"
+	zed_launcher
 	if [ "$DISTRO" = ubuntu ]; then
 		# Ubuntu's own dock fights Dash to Dock, and Yaru carries the accent
 		# in the theme name.
