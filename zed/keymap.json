@@ -6,10 +6,11 @@
 //   then s stage, r reset, p preview, b blame, d diff.
 //   Ghostty (its defaults and ghostty/config): Ctrl-Shift-T opens a terminal as
 //   a tab beside the files, from anywhere; Ctrl-Shift-O and Ctrl-Shift-E open a
-//   terminal in a new split to the right or below, from a file or a terminal;
-//   Ctrl-Alt-arrows move between splits, files or terminals. In a terminal:
-//   Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-W close, Shift-Enter a
-//   newline (for Claude Code).
+//   terminal in a new split to the right of or below the active pane, from a
+//   file, a terminal, or the file or git panel, and as the first tab when no
+//   tabs are open; Ctrl-Alt-arrows move between splits, files or terminals. In
+//   a terminal: Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-W close,
+//   Shift-Enter a newline (for Claude Code).
 [
   {
     "context": "Editor && vim_mode == normal",
@@ -38,20 +39,53 @@
     },
   },
   {
-    // From a file, Ghostty's split keys open a terminal in the new split. The
-    // split comes first, empty, because the terminal starts asynchronously and
-    // lands in whichever pane is active. Replaces Zed's outline (Ctrl-Shift-O)
-    // and reveal-in-file-panel (Ctrl-Shift-E) here.
-    "context": "Editor && mode == full",
+    // Ghostty's split keys open a terminal in a new split, from a file or
+    // anything else in a pane (an image, a settings page, a search bar): F13 or
+    // F14 makes the split, empty, then Ctrl-Shift-T opens the terminal in it.
+    // SendKeystrokes draws a frame between the two, and that frame is what
+    // makes the new split the active pane; an action::Sequence draws none and
+    // relied on the terminal starting after the next frame. Replaces Zed's
+    // outline (Ctrl-Shift-O) and reveal-in-file-panel (Ctrl-Shift-E) in files.
+    "context": "(Editor && mode == full) || (Pane && !EmptyPane)",
     "bindings": {
-      "ctrl-shift-o": ["action::Sequence", [["pane::SplitRight", { "mode": "EmptyPane" }], "workspace::NewCenterTerminal"]],
-      "ctrl-shift-e": ["action::Sequence", [["pane::SplitDown", { "mode": "EmptyPane" }], "workspace::NewCenterTerminal"]],
+      "ctrl-shift-o": ["workspace::SendKeystrokes", "f13 ctrl-shift-t"],
+      "ctrl-shift-e": ["workspace::SendKeystrokes", "f14 ctrl-shift-t"],
     },
   },
   {
+    // F13 and F14 are not on the keyboard; they name the empty splits for the
+    // keys above.
+    "context": "Pane",
+    "bindings": {
+      "f13": ["pane::SplitRight", { "mode": "EmptyPane" }],
+      "f14": ["pane::SplitDown", { "mode": "EmptyPane" }],
+    },
+  },
+  {
+    // With no tabs open, either key opens the first terminal as a tab.
+    "context": "EmptyPane",
+    "bindings": {
+      "ctrl-shift-o": "workspace::NewCenterTerminal",
+      "ctrl-shift-e": "workspace::NewCenterTerminal",
+    },
+  },
+  {
+    // A click on a file in the file or git panel opens it but leaves the focus
+    // in the panel. From there, the split keys first press the panel's own key
+    // back to the active pane (Escape in the file panel under vim mode,
+    // Ctrl-Shift-G in the git panel), then the split key in that pane.
     "context": "ProjectPanel",
     "bindings": {
       "ctrl-p": "workspace::ToggleLeftDock",
+      "ctrl-shift-o": ["workspace::SendKeystrokes", "escape ctrl-shift-o"],
+      "ctrl-shift-e": ["workspace::SendKeystrokes", "escape ctrl-shift-e"],
+    },
+  },
+  {
+    "context": "GitPanel",
+    "bindings": {
+      "ctrl-shift-o": ["workspace::SendKeystrokes", "ctrl-shift-g ctrl-shift-o"],
+      "ctrl-shift-e": ["workspace::SendKeystrokes", "ctrl-shift-g ctrl-shift-e"],
     },
   },
   {

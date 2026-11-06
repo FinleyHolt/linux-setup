@@ -61,9 +61,10 @@ at `cheatsheets/`.
   the left with its button in the status bar, and Neovim's `Ctrl-P`, `Ctrl-F`,
   `Ctrl-L`, and `Ctrl-\` keys. Git: hunks in the gutter, line blame, the git
   panel, and the gitsigns keys (`]h`, `[h`, `Space g` s/r/p/b/d). `Ctrl-Shift-T`
-  opens a terminal as a tab beside the files, and terminals take Ghostty's tab
-  and split keys. The Thor (`spot-asl`) is a saved remote
-  with four projects. The Catppuccin theme and icons install on first launch.
+  opens a terminal as a tab beside the files; `Ctrl-Shift-O` and `Ctrl-Shift-E`
+  open one in a split to the right of or below the active pane, from a file, a
+  terminal, or the file or git panel, or as the first tab when none is open.
+  The Thor (`spot-asl`) is a saved remote with four projects. The Catppuccin theme and icons install on first launch.
 - **Remote sessions that survive sleep**: `moshr HOST [SESSION]` moshes in
   and attaches a tmux session, so a shut lid or a new network is only a pause.
   `sshr HOST [SESSION]` does the same over plain ssh for hosts without
