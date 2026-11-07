@@ -14,6 +14,8 @@
 //   Projects: Ctrl-Alt-O the recent projects, local and remote; Ctrl-Alt-Shift-O
 //   the remote list (the Thor's ~/Github, in settings.json). Vim mode takes
 //   Ctrl-R for redo, so the recent projects need a key of their own.
+//   Ctrl-Shift-N, Zed's new window, opens the remote list first; the project
+//   picked there opens in the new window.
 [
   {
     "context": "Editor && vim_mode == normal",
@@ -96,6 +98,9 @@
     "bindings": {
       "ctrl-alt-o": "projects::OpenRecent",
       "ctrl-alt-shift-o": "projects::OpenRemote",
+      // Zed's new window opens empty and local; this one asks which remote
+      // first, and create_new_window puts the picked project in a new window.
+      "ctrl-shift-n": ["projects::OpenRemote", { "from_existing_connection": false, "create_new_window": true }],
       "ctrl-\\": "terminal_panel::Toggle",
       "ctrl-shift-t": "workspace::NewCenterTerminal",
       "ctrl-alt-left": "workspace::ActivatePaneLeft",
