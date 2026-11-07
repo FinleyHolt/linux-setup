@@ -11,6 +11,9 @@
 //   tabs are open; Ctrl-Alt-arrows move between splits, files or terminals. In
 //   a terminal: Ctrl-Tab and Ctrl-Shift-Tab between tabs, Ctrl-Shift-W close,
 //   Shift-Enter a newline (for Claude Code).
+//   Projects: Ctrl-Alt-O the recent projects, local and remote; Ctrl-Alt-Shift-O
+//   the remote list (the Thor's ~/Github, in settings.json). Vim mode takes
+//   Ctrl-R for redo, so the recent projects need a key of their own.
 [
   {
     "context": "Editor && vim_mode == normal",
@@ -91,6 +94,8 @@
   {
     "context": "Workspace",
     "bindings": {
+      "ctrl-alt-o": "projects::OpenRecent",
+      "ctrl-alt-shift-o": "projects::OpenRemote",
       "ctrl-\\": "terminal_panel::Toggle",
       "ctrl-shift-t": "workspace::NewCenterTerminal",
       "ctrl-alt-left": "workspace::ActivatePaneLeft",

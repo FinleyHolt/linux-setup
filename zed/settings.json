@@ -88,21 +88,24 @@
     "max_scroll_history_lines": 100000,
   },
 
-  // --- Remote: the Thor as finley (`ssh spot-asl`). Its terminals, git, and
-  // language servers run there. Open one with ctrl-r (recent projects) or
-  // "projects: open remote" from the command palette. No hamming entry: Zed's
+  // --- Remote: the Thor as finley (`ssh spot-asl`), one project for all of
+  // ~/Github so every repo is in one file panel. Its terminals, git, and
+  // language servers run there. Ctrl-Alt-Shift-O opens the remote list,
+  // Ctrl-Alt-O the recent projects (keymap.json). No hamming entry: Zed's
   // server and language servers would run on the shared login node. ---
   "ssh_connections": [
     {
       "host": "spot-asl",
-      "nickname": "Thor",
+      "args": [],
       "projects": [
-        { "paths": ["/home/finley/Github/MAPSInternal"] },
-        { "paths": ["/home/finley/Github/nasa-uli"] },
-        { "paths": ["/home/finley/Github/WORLDS"] },
-        { "paths": ["/home/finley/Github/worldkit"] },
+        {
+          "paths": [
+            "/home/finley/Github"
+          ]
+        }
       ],
-    },
+      "nickname": "Thor"
+    }
   ],
 
   // --- Kept from the earlier config ---

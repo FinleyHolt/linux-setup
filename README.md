@@ -64,7 +64,9 @@ at `cheatsheets/`.
   opens a terminal as a tab beside the files; `Ctrl-Shift-O` and `Ctrl-Shift-E`
   open one in a split to the right of or below the active pane, from a file, a
   terminal, or the file or git panel, or as the first tab when none is open.
-  The Thor (`spot-asl`) is a saved remote with four projects. The Catppuccin theme and icons install on first launch.
+  The Thor (`spot-asl`) is a saved remote whose one project is all of
+  `~/Github`; `Ctrl-Alt-Shift-O` opens the remote list and `Ctrl-Alt-O` the
+  recent projects. The Catppuccin theme and icons install on first launch.
 - **Remote sessions that survive sleep**: `moshr HOST [SESSION]` moshes in
   and attaches a tmux session, so a shut lid or a new network is only a pause.
   `sshr HOST [SESSION]` does the same over plain ssh for hosts without
