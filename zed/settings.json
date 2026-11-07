@@ -92,11 +92,16 @@
   // ~/Github so every repo is in one file panel. Its terminals, git, and
   // language servers run there. Ctrl-Alt-Shift-O opens the remote list,
   // Ctrl-Alt-O the recent projects (keymap.json). No hamming entry: Zed's
-  // server and language servers would run on the shared login node. ---
+  // server and language servers would run on the shared login node.
+  // Port 2222 is the Thor's relay (finley-setup systemd/zed-ssh-relay.service):
+  // its connections outlive this laptop's sleep, where sshd's own die in 15
+  // minutes and take Zed's server with them. HostKeyAlias keeps the host key
+  // the one known for port 22. ---
   "ssh_connections": [
     {
       "host": "spot-asl",
-      "args": [],
+      "port": 2222,
+      "args": ["-o", "HostKeyAlias=spot-asl.tail726409.ts.net"],
       "projects": [
         {
           "paths": [
